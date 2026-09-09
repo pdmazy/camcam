@@ -20,9 +20,17 @@ import {
   FolderOpen,
   Info,
   ShieldCheck,
-  Upload
+  Upload,
+  Scan,
+  Printer,
+  Sliders,
+  Settings2,
+  Scissors
 } from 'lucide-react';
-import { CapturedPhoto } from '../types';
+import { CapturedPhoto, PrintSettings, PageSize, LayoutMode } from '../types';
+import { PrintSettingsModal } from './PrintSettingsModal';
+import { renderDocumentToPaperCanvas, exportToStandardPdf, PAPER_DIMENSIONS } from '../utils/printLayout';
+import appIcon from '../assets/images/app_scanner_icon_1788983654452.jpg';
 
 interface AndroidSimulatorProps {
   onPhotoCountChange?: (count: number) => void;
@@ -41,6 +49,27 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
 
   // App Screen: 'home' | 'camera' | 'crop' | 'result'
   const [screen, setScreen] = useState<'home' | 'camera' | 'crop' | 'result'>('home');
+
+  // Real-time edge detection overlay state
+  const [isEdgeDetectionActive, setIsEdgeDetectionActive] = useState<boolean>(true);
+
+  // Save to gallery state
+  const [isSavedToGallery, setIsSavedToGallery] = useState<boolean>(false);
+  const [isSavingGallery, setIsSavingGallery] = useState<boolean>(false);
+
+  // Print & Standard Paper Layout Settings (A4, A5, 2-in-1, etc.)
+  const [printSettings, setPrintSettings] = useState<PrintSettings>({
+    pageSize: 'A4',
+    layoutMode: '1-in-1',
+    orientation: 'portrait',
+    margin: 'standard',
+    addCutLine: true,
+    addTimestampFooter: true,
+  });
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState<boolean>(false);
+  const [paperPreviewUrl, setPaperPreviewUrl] = useState<string | null>(null);
+  const [isGeneratingPreview, setIsGeneratingPreview] = useState<boolean>(false);
+  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
 
   // Camera settings
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -491,6 +520,7 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
       onPhotoCountChange?.(photos.length + 1);
 
       setActiveFilter('photocopy');
+      setIsSavedToGallery(false);
       setIsProcessing(false);
       setScreen('result');
       showToast('مدرک با موفقیت اسکن و پردازش شد');
@@ -531,63 +561,104 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
     }
   };
 
-  // Download high-resolution JPG
-  const downloadImage = () => {
+  // Generate realistic paper sheet render whenever in result screen and image or print settings change
+  useEffect(() => {
+    if (screen !== 'result') return;
+    const activeImg = getActiveResultImage();
+    if (!activeImg) return;
+
+    let isMounted = true;
+    setIsGeneratingPreview(true);
+
+    renderDocumentToPaperCanvas(activeImg, printSettings.secondaryPhoto, printSettings)
+      .then((canvas) => {
+        if (isMounted) {
+          setPaperPreviewUrl(canvas.toDataURL('image/jpeg', 0.95));
+          setIsGeneratingPreview(false);
+        }
+      })
+      .catch((err) => {
+        console.error('Error rendering paper canvas:', err);
+        if (isMounted) setIsGeneratingPreview(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [screen, activeFilter, photocopyImage, magicColorImage, grayscaleImage, dewarpedImage, printSettings]);
+
+  // Save to Gallery: Exports processed document as a JPEG file to public storage
+  const saveToGalleryAsJpeg = async () => {
     const imgUrl = getActiveResultImage();
     if (!imgUrl) return;
 
-    const a = document.createElement('a');
-    a.href = imgUrl;
-    a.download = `Document_Scan_${Date.now()}.jpg`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    showToast('تصویر باکیفیت در گالری ذخیره شد');
+    setIsSavingGallery(true);
+
+    try {
+      // Use the paper sheet layout canvas so output respects A4, A5, or 2-in-1 layout!
+      const canvas = await renderDocumentToPaperCanvas(imgUrl, printSettings.secondaryPhoto, printSettings);
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          setIsSavingGallery(false);
+          return;
+        }
+
+        const layoutLabel = printSettings.layoutMode === '2-in-1' ? '2in1' : printSettings.pageSize;
+        const filename = `Document_Scan_${layoutLabel}_${Date.now()}.jpg`;
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 2500);
+
+        setIsSavingGallery(false);
+        setIsSavedToGallery(true);
+        const layoutText = printSettings.layoutMode === '2-in-1' ? 'دو سند در برگه A4' : `قطع ${printSettings.pageSize}`;
+        showToast(`سند با فرمت JPEG (${layoutText}) در حافظه عمومی دستگاه (گالری) ذخیره شد`);
+
+        setTimeout(() => {
+          setIsSavedToGallery(false);
+        }, 4000);
+      }, 'image/jpeg', 0.95);
+    } catch (err) {
+      console.error(err);
+      setIsSavingGallery(false);
+      showToast('خطا در تبدیل و ذخیره تصویر در گالری');
+    }
   };
 
-  // Export to Standard A4 PDF Document
-  const exportPdf = () => {
+  // Export to Standard PDF Document (A4, A5, 2-in-1 on A4 using real jsPDF)
+  const exportPdf = async () => {
     const imgUrl = getActiveResultImage();
     if (!imgUrl) return;
 
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      const pdfCanvas = document.createElement('canvas');
-      // Standard A4 ratio at 150 DPI: 1240 x 1754
-      pdfCanvas.width = 1240;
-      pdfCanvas.height = 1754;
-      const pctx = pdfCanvas.getContext('2d');
-      if (!pctx) return;
-
-      // Pure white paper background
-      pctx.fillStyle = '#ffffff';
-      pctx.fillRect(0, 0, pdfCanvas.width, pdfCanvas.height);
-
-      // Fit and center document with margin
-      const margin = 80;
-      const availW = pdfCanvas.width - margin * 2;
-      const availH = pdfCanvas.height - margin * 2;
-
-      const scale = Math.min(availW / img.width, availH / img.height);
-      const destW = img.width * scale;
-      const destH = img.height * scale;
-      const destX = margin + (availW - destW) / 2;
-      const destY = margin + (availH - destH) / 2;
-
-      pctx.drawImage(img, destX, destY, destW, destH);
-
-      // Trigger download
+    setIsExportingPdf(true);
+    try {
+      const pdfBlob = await exportToStandardPdf(imgUrl, printSettings.secondaryPhoto, printSettings);
+      const layoutLabel = printSettings.layoutMode === '2-in-1' ? '2in1_A4' : printSettings.pageSize;
+      const filename = `Document_${layoutLabel}_${Date.now()}.pdf`;
+      const blobUrl = URL.createObjectURL(pdfBlob);
       const a = document.createElement('a');
-      a.href = pdfCanvas.toDataURL('image/jpeg', 0.95);
-      a.download = `Document_A4_${Date.now()}.jpg`; // High-res document sheet
+      a.href = blobUrl;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
 
-      showToast('خروجی با استاندارد سند A4 ذخیره شد');
-    };
-    img.src = imgUrl;
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 3000);
+
+      const pageDesc = printSettings.layoutMode === '2-in-1' ? 'دو سند در یک برگه A4' : `صفحه استاندارد ${printSettings.pageSize}`;
+      showToast(`فایل PDF استاندارد (${pageDesc}) دانلود شد`);
+    } catch (err) {
+      console.error(err);
+      showToast('خطا در ایجاد سند PDF');
+    } finally {
+      setIsExportingPdf(false);
+    }
   };
 
   // Share Document via Web Share API
@@ -608,7 +679,7 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
         showToast('اشتراک‌گذاری انجام شد');
       }
     } else {
-      downloadImage();
+      saveToGalleryAsJpeg();
     }
   };
 
@@ -633,13 +704,14 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
       const rotatedUrl = rotCanvas.toDataURL('image/jpeg', 0.95);
       setDewarpedImage(rotatedUrl);
       setPhotocopyImage(rotatedUrl);
+      setIsSavedToGallery(false);
       showToast('جهت مدرک ۹۰ درجه تغییر کرد');
     };
     img.src = imgUrl;
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#0a0a0a] text-neutral-100 select-none overflow-hidden relative font-sans">
+    <div className="flex flex-col h-full bg-slate-50 text-slate-900 select-none overflow-hidden relative font-sans">
       {/* Hidden File Input for Gallery picking */}
       <input
         ref={fileInputRef}
@@ -650,11 +722,11 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
       />
 
       {/* Top Android Status Bar */}
-      <div className="h-7 bg-black/90 px-4 flex items-center justify-between text-[11px] text-neutral-400 z-30 shrink-0">
-        <span className="font-mono">14:00</span>
+      <div className="h-7 bg-slate-100/90 border-b border-slate-200 px-4 flex items-center justify-between text-[11px] text-slate-600 z-30 shrink-0">
+        <span className="font-mono font-medium">14:00</span>
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-emerald-400 font-medium">کاملاً آفلاین</span>
-          <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+          <span className="text-[10px] text-emerald-700 font-medium bg-emerald-100/80 px-2 py-0.2 rounded-full">کاملاً آفلاین</span>
+          <div className="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-200"></div>
         </div>
       </div>
 
@@ -662,34 +734,93 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
       <canvas ref={canvasRef} className="hidden" />
 
       {/* ========================================================= */}
-      {/* SCREEN 1: HOME DASHBOARD (صفحه اصلی و اولیه اپلیکیشن)        */}
+      {/* SCREEN 1: HOME DASHBOARD (صفحه اصلی و شیک اپلیکیشن)        */}
       {/* ========================================================= */}
       {screen === 'home' && (
-        <div className="flex-1 flex flex-col p-4 overflow-y-auto max-w-md mx-auto w-full">
-          {/* Brand Header */}
-          <div className="flex items-center justify-between mt-2 mb-5">
+        <div className="flex-1 flex flex-col p-4 overflow-y-auto max-w-md mx-auto w-full bg-slate-50">
+          {/* Brand Header with Generated 3D App Icon */}
+          <div className="flex items-center justify-between mt-1 mb-4 bg-white p-3 rounded-2xl border border-slate-200/90 shadow-sm">
             <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                <FileCheck className="w-6 h-6" />
-              </div>
+              <img
+                src={appIcon}
+                alt="Scanner Icon"
+                className="w-12 h-12 rounded-2xl shadow-md border border-slate-200 object-cover"
+              />
               <div>
-                <h2 className="text-base font-bold text-white tracking-tight">اسکنر و فتوکپی مدارک</h2>
-                <p className="text-[11px] text-neutral-400 mt-0.5">تبدیل هوشمند عکس به فتوکپی تمیز و پرکنتراست</p>
+                <h2 className="text-sm font-extrabold text-slate-900 tracking-tight flex items-center gap-1.5">
+                  اسکنر و فتوکپی هوشمند مدارک
+                </h2>
+                <p className="text-[11px] text-slate-500 mt-0.5">نسخه فتوکپی اداری پرکنتراست • بدون اینترنت</p>
               </div>
             </div>
-            <span className="text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-medium">
-              نیتیو
+            <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-bold shrink-0">
+              نسخه ۴.۲
             </span>
           </div>
 
+          {/* Quick Paper Output Selector (A4, A5, 2-in-1) */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-3 mb-3.5 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                <Printer className="w-3.5 h-3.5 text-emerald-600" />
+                اندازه و چیدمان برگه خروجی:
+              </span>
+              <button
+                onClick={() => setIsPrintModalOpen(true)}
+                className="text-[10px] text-emerald-700 hover:text-emerald-800 font-bold flex items-center gap-0.5 cursor-pointer"
+              >
+                <Settings2 className="w-3 h-3" />
+                <span>تنظیمات پیشرفته</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                onClick={() => setPrintSettings(prev => ({ ...prev, pageSize: 'A4', layoutMode: '1-in-1' }))}
+                className={`py-1.5 px-2 rounded-xl text-[11px] font-bold text-center border transition cursor-pointer ${
+                  printSettings.pageSize === 'A4' && printSettings.layoutMode === '1-in-1'
+                    ? 'bg-emerald-50 border-emerald-500 text-emerald-800 shadow-xs'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <span className="block text-xs">📄 برگه A4</span>
+                <span className="text-[9px] font-normal text-slate-500">تک‌سند اداری</span>
+              </button>
+
+              <button
+                onClick={() => setPrintSettings(prev => ({ ...prev, pageSize: 'A5', layoutMode: '1-in-1' }))}
+                className={`py-1.5 px-2 rounded-xl text-[11px] font-bold text-center border transition cursor-pointer ${
+                  printSettings.pageSize === 'A5' && printSettings.layoutMode === '1-in-1'
+                    ? 'bg-emerald-50 border-emerald-500 text-emerald-800 shadow-xs'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <span className="block text-xs">📑 برگه A5</span>
+                <span className="text-[9px] font-normal text-slate-500">تک‌سند نیم‌صفحه</span>
+              </button>
+
+              <button
+                onClick={() => setPrintSettings(prev => ({ ...prev, pageSize: 'A4', layoutMode: '2-in-1' }))}
+                className={`py-1.5 px-2 rounded-xl text-[11px] font-bold text-center border transition cursor-pointer ${
+                  printSettings.layoutMode === '2-in-1'
+                    ? 'bg-emerald-50 border-emerald-500 text-emerald-800 shadow-xs'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <span className="block text-xs">✂️ ۲ در ۱ A4</span>
+                <span className="text-[9px] font-normal text-slate-500">رو و پشت مدرک</span>
+              </button>
+            </div>
+          </div>
+
           {/* Main Action Card */}
-          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 mb-4 shadow-xl">
-            <span className="text-[11px] font-semibold text-neutral-400 mb-3 block">شروع اسکن مدارک</span>
+          <div className="bg-white border border-slate-200 rounded-2xl p-3.5 mb-3.5 shadow-sm">
+            <span className="text-[11px] font-bold text-slate-700 mb-2.5 block">عملیات اسکن مدرک</span>
 
             {/* Primary Button: Open Camera */}
             <button
               onClick={() => setScreen('camera')}
-              className="w-full bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-neutral-950 font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-emerald-500/20 text-sm mb-2.5 cursor-pointer"
+              className="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition shadow-md shadow-emerald-600/25 text-sm mb-2.5 cursor-pointer"
             >
               <Camera className="w-5 h-5" />
               <span>اسکن مدرک جدید با دوربین</span>
@@ -698,9 +829,9 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
             {/* Secondary Button: Pick from Gallery */}
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="w-full bg-neutral-800 hover:bg-neutral-750 text-neutral-200 font-medium py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition text-xs border border-neutral-700 cursor-pointer mb-2.5"
+              className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition text-xs border border-slate-200 cursor-pointer mb-2"
             >
-              <Upload className="w-4 h-4 text-neutral-400" />
+              <Upload className="w-4 h-4 text-slate-600" />
               <span>انتخاب عکس مدرک از گالری گوشی</span>
             </button>
 
@@ -710,46 +841,46 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
                 const sampleUrl = generateSampleDocument();
                 prepareImageForCrop(sampleUrl);
               }}
-              className="w-full bg-emerald-950/40 hover:bg-emerald-950/60 text-emerald-300 font-medium py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition text-xs border border-emerald-500/30 cursor-pointer"
+              className="w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-semibold py-2 px-4 rounded-xl flex items-center justify-center gap-2 transition text-xs border border-emerald-200 cursor-pointer"
             >
-              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-              <span>تست با نمونه کارت هوشمند ملی (فوری)</span>
+              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+              <span>تست فوری با نمونه کارت ملی</span>
             </button>
           </div>
 
           {/* Quality & Tip Card */}
-          <div className="bg-emerald-950/20 border border-emerald-500/20 rounded-xl p-3 mb-4">
-            <div className="flex items-center gap-2 text-emerald-400 text-xs font-semibold mb-1">
-              <ShieldCheck className="w-4 h-4" />
+          <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-3 mb-3.5">
+            <div className="flex items-center gap-1.5 text-amber-900 text-xs font-bold mb-1">
+              <ShieldCheck className="w-4 h-4 text-amber-700" />
               <span>نکته برای بالاترین کیفیت فتوکپی</span>
             </div>
-            <p className="text-[11px] text-neutral-300 leading-relaxed">
-              فلاش دوربین به طور پیش‌فرض <strong>خاموش</strong> است تا از بازتاب نور روی سلفون یا کارت جلوگیری شود. مدرک را روی سطح صاف با نور محیطی کافی قرار دهید.
+            <p className="text-[11px] text-amber-950/80 leading-relaxed">
+              فلاش دوربین به طور پیش‌فرض <strong>خاموش</strong> است تا از بازتاب نور روی سلفون یا کارت جلوگیری شود. مدرک را روی سطح صاف با نور یکنواخت محیطی قرار دهید.
             </p>
           </div>
 
           {/* Feature highlights */}
-          <div className="grid grid-cols-3 gap-2 mb-4 text-center">
-            <div className="bg-neutral-900/80 border border-neutral-800 rounded-xl p-2.5">
-              <span className="text-[10px] text-emerald-400 font-bold block">✓ فتوکپی واضح</span>
-              <span className="text-[9px] text-neutral-400">سفید کردن کاغذ و پررنگ کردن متن</span>
+          <div className="grid grid-cols-3 gap-2 mb-3.5 text-center">
+            <div className="bg-white border border-slate-200 rounded-xl p-2.5 shadow-2xs">
+              <span className="text-[10px] text-emerald-700 font-bold block">✓ فتوکپی واضح</span>
+              <span className="text-[9px] text-slate-500">حذف سایه و سفیدسازی کاغذ</span>
             </div>
-            <div className="bg-neutral-900/80 border border-neutral-800 rounded-xl p-2.5">
-              <span className="text-[10px] text-emerald-400 font-bold block">✓ تنظیم گوشه‌ها</span>
-              <span className="text-[9px] text-neutral-400">برش دقیق و رفع اعوجاج زاویه</span>
+            <div className="bg-white border border-slate-200 rounded-xl p-2.5 shadow-2xs">
+              <span className="text-[10px] text-emerald-700 font-bold block">✓ کادر هوشمند</span>
+              <span className="text-[9px] text-slate-500">تشخیص لبه و برش ۴ گوشه</span>
             </div>
-            <div className="bg-neutral-900/80 border border-neutral-800 rounded-xl p-2.5">
-              <span className="text-[10px] text-emerald-400 font-bold block">✓ خروجی PDF</span>
-              <span className="text-[9px] text-neutral-400">استاندارد اسناد و اشتراک‌گذاری</span>
+            <div className="bg-white border border-slate-200 rounded-xl p-2.5 shadow-2xs">
+              <span className="text-[10px] text-emerald-700 font-bold block">✓ ذخیره در گالری</span>
+              <span className="text-[9px] text-slate-500">فرمت استاندارد JPEG و PDF</span>
             </div>
           </div>
 
           {/* Recent Scans Section */}
           <div className="mt-auto">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-neutral-300">مدارک اسکن شده اخیر</span>
+              <span className="text-xs font-bold text-slate-700">مدارک اسکن شده اخیر</span>
               {photos.length > 0 && (
-                <span className="text-[10px] text-neutral-400 font-mono">{photos.length} مدرک</span>
+                <span className="text-[10px] text-slate-500 font-mono font-medium">{photos.length} مدرک</span>
               )}
             </div>
 
@@ -763,26 +894,26 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
                       setDewarpedImage(p.originalUrl);
                       setScreen('result');
                     }}
-                    className="bg-neutral-900 border border-neutral-800 hover:border-neutral-700 rounded-xl p-2 flex items-center gap-3 cursor-pointer transition"
+                    className="bg-white border border-slate-200 hover:border-emerald-500 rounded-xl p-2 flex items-center gap-3 cursor-pointer transition shadow-2xs"
                   >
                     <img
                       src={p.grayscaleUrl}
                       alt="مدرک"
-                      className="w-12 h-12 object-cover rounded-lg border border-neutral-700 bg-white"
+                      className="w-12 h-12 object-cover rounded-lg border border-slate-200 bg-white"
                     />
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-neutral-200 truncate">مدرک اسکن شده فتوکپی</p>
-                      <p className="text-[10px] text-neutral-400 mt-0.5">آماده ارسال و چاپ باکیفیت</p>
+                      <p className="text-xs font-bold text-slate-800 truncate">مدرک اسکن شده فتوکپی</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">آماده ارسال و چاپ باکیفیت</p>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-neutral-500 rotate-180" />
+                    <ChevronRight className="w-4 h-4 text-slate-400 rotate-180" />
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="bg-neutral-900/40 border border-dashed border-neutral-800 rounded-xl p-4 text-center">
-                <FileText className="w-6 h-6 text-neutral-600 mx-auto mb-1.5" />
-                <p className="text-[11px] text-neutral-400">هنوز مدرکی اسکن نشده است.</p>
-                <p className="text-[10px] text-neutral-500 mt-0.5">با زدن دکمه اسکن یا تست نمونه اولین مدرک را ایجاد کنید.</p>
+              <div className="bg-white border border-dashed border-slate-300 rounded-xl p-4 text-center">
+                <FileText className="w-6 h-6 text-slate-400 mx-auto mb-1.5" />
+                <p className="text-[11px] text-slate-600 font-medium">هنوز مدرکی اسکن نشده است.</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">با زدن دکمه اسکن یا تست نمونه اولین مدرک را ایجاد کنید.</p>
               </div>
             )}
           </div>
@@ -806,35 +937,55 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
 
             <span className="text-xs font-bold text-white">کادر اسکن مدرک</span>
 
-            {/* Flash Mode Toggle Button (Off by default) */}
-            <button
-              onClick={toggleFlash}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer border ${
-                flashMode === 'off'
-                  ? 'bg-neutral-800/80 text-neutral-300 border-neutral-700'
-                  : flashMode === 'on'
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                  : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
-              }`}
-              title="تغییر حالت فلاش"
-            >
-              {flashMode === 'off' ? (
-                <>
-                  <ZapOff className="w-3.5 h-3.5" />
-                  <span className="text-[10px]">فلاش خاموش</span>
-                </>
-              ) : flashMode === 'on' ? (
-                <>
-                  <Zap className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="text-[10px]">فلاش روشن</span>
-                </>
-              ) : (
-                <>
-                  <Zap className="w-3.5 h-3.5 text-blue-400" />
-                  <span className="text-[10px]">فلاش خودکار</span>
-                </>
-              )}
-            </button>
+            <div className="flex items-center gap-1.5">
+              {/* Real-time Edge Scanning Toggle Button */}
+              <button
+                onClick={() => {
+                  setIsEdgeDetectionActive(prev => !prev);
+                  showToast(!isEdgeDetectionActive ? 'اسکن لبه‌های مدرک فعال شد' : 'اسکن لبه‌های مدرک غیرفعال شد');
+                }}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer border transition ${
+                  isEdgeDetectionActive
+                    ? 'bg-emerald-500/25 text-emerald-300 border-emerald-500/50 shadow-sm shadow-emerald-500/20'
+                    : 'bg-neutral-800/80 text-neutral-400 border-neutral-700'
+                }`}
+                title="تغییر وضعیت ردیابی لبه‌های مدرک"
+              >
+                <Scan className="w-3.5 h-3.5" />
+                <span className="text-[10px] hidden sm:inline">تشخیص لبه:</span>
+                <span className="text-[10px]">{isEdgeDetectionActive ? 'روشن' : 'خاموش'}</span>
+              </button>
+
+              {/* Flash Mode Toggle Button (Off by default) */}
+              <button
+                onClick={toggleFlash}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer border ${
+                  flashMode === 'off'
+                    ? 'bg-neutral-800/80 text-neutral-300 border-neutral-700'
+                    : flashMode === 'on'
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                    : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                }`}
+                title="تغییر حالت فلاش"
+              >
+                {flashMode === 'off' ? (
+                  <>
+                    <ZapOff className="w-3.5 h-3.5" />
+                    <span className="text-[10px]">فلاش خاموش</span>
+                  </>
+                ) : flashMode === 'on' ? (
+                  <>
+                    <Zap className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="text-[10px]">فلاش روشن</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-3.5 h-3.5 text-blue-400" />
+                    <span className="text-[10px]">فلاش خودکار</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Viewfinder Preview */}
@@ -866,24 +1017,65 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
               </div>
             )}
 
-            {/* Document Guide Overlay */}
-            <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center p-6">
-              {/* Dim surrounds */}
-              <div className="w-[88%] aspect-[1/1.42] max-h-[72%] border-2 border-dashed border-emerald-400/90 rounded-2xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] flex flex-col justify-between p-3">
-                {/* 4 Corner Markers */}
-                <div className="absolute -top-1 -left-1 w-6 h-6 border-t-3 border-l-3 border-emerald-400 rounded-tl-lg"></div>
-                <div className="absolute -top-1 -right-1 w-6 h-6 border-t-3 border-r-3 border-emerald-400 rounded-tr-lg"></div>
-                <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-3 border-l-3 border-emerald-400 rounded-bl-lg"></div>
-                <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-3 border-r-3 border-emerald-400 rounded-br-lg"></div>
+            {/* Real-time UI Overlay Layer: Semi-transparent Detection Box */}
+            <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center p-5 z-10">
+              {/* Semi-transparent Detection Box with dim surrounds */}
+              <div
+                className={`w-[88%] aspect-[1/1.42] max-h-[74%] rounded-2xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.62)] flex flex-col justify-between p-3.5 transition-all duration-300 ${
+                  isEdgeDetectionActive
+                    ? 'bg-emerald-500/15 backdrop-blur-[0.5px] border-2 border-emerald-400 animate-detection-box'
+                    : 'bg-black/20 border-2 border-dashed border-neutral-500'
+                }`}
+              >
+                {/* 4 Precision Corner Reticles */}
+                <div className="absolute -top-1.5 -left-1.5 w-7 h-7 border-t-3 border-l-3 border-emerald-400 rounded-tl-lg shadow-[0_0_8px_#34d399]"></div>
+                <div className="absolute -top-1.5 -right-1.5 w-7 h-7 border-t-3 border-r-3 border-emerald-400 rounded-tr-lg shadow-[0_0_8px_#34d399]"></div>
+                <div className="absolute -bottom-1.5 -left-1.5 w-7 h-7 border-b-3 border-l-3 border-emerald-400 rounded-bl-lg shadow-[0_0_8px_#34d399]"></div>
+                <div className="absolute -bottom-1.5 -right-1.5 w-7 h-7 border-b-3 border-r-3 border-emerald-400 rounded-br-lg shadow-[0_0_8px_#34d399]"></div>
 
-                {/* Guide Text Badge */}
-                <div className="self-center bg-black/70 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-[10px] text-emerald-300 font-medium">
-                  مدرک یا کارت را درون کادر تنظیم کنید
+                {/* Corner Coordinates Tags */}
+                <span className="absolute top-1 left-2 text-[8px] font-mono font-bold text-emerald-400/80">[TL]</span>
+                <span className="absolute top-1 right-2 text-[8px] font-mono font-bold text-emerald-400/80">[TR]</span>
+                <span className="absolute bottom-1 left-2 text-[8px] font-mono font-bold text-emerald-400/80">[BL]</span>
+                <span className="absolute bottom-1 right-2 text-[8px] font-mono font-bold text-emerald-400/80">[BR]</span>
+
+                {/* Real-time Vertical Animated Scanning Laser Beam */}
+                {isEdgeDetectionActive && (
+                  <div className="absolute inset-x-0 animate-scan-line pointer-events-none z-0">
+                    <div className="h-0.5 w-full bg-gradient-to-r from-transparent via-emerald-300 to-transparent shadow-[0_0_14px_#34d399]"></div>
+                    <div className="h-10 w-full bg-gradient-to-b from-emerald-400/25 to-transparent"></div>
+                  </div>
+                )}
+
+                {/* Top Status Signal Badge: Scanning for document edges */}
+                <div className="flex items-center justify-between z-10">
+                  <div className="bg-black/80 backdrop-blur-md px-2.5 py-1 rounded-full border border-emerald-500/50 flex items-center gap-1.5 shadow-lg">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    <span className="text-[10px] text-emerald-300 font-bold tracking-tight">
+                      در حال اسکن و پایش لبه‌های مدرک...
+                    </span>
+                  </div>
+
+                  <div className="bg-emerald-950/85 border border-emerald-500/40 text-emerald-300 text-[9px] font-mono font-semibold px-2 py-0.5 rounded-md flex items-center gap-1 shadow">
+                    <Scan className="w-3 h-3 text-emerald-400" />
+                    <span>لبه‌ها فعال</span>
+                  </div>
                 </div>
 
-                {/* Subtext */}
-                <div className="self-center bg-black/60 px-2.5 py-0.5 rounded-md text-[9px] text-neutral-300">
-                  فلاش خاموش (بدون بازتاب نور)
+                {/* Center Alignment Reticle */}
+                <div className="self-center flex flex-col items-center justify-center opacity-70 z-10 pointer-events-none">
+                  <div className="w-8 h-8 rounded-full border border-emerald-400/40 flex items-center justify-center">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div>
+                  </div>
+                </div>
+
+                {/* Bottom Guidance Signal Badge */}
+                <div className="self-center bg-black/80 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-[10px] text-neutral-200 flex items-center gap-1.5 shadow-lg z-10">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                  <span>کادر نیمه‌شفاف هوشمند • لبه‌های مدرک را درون کادر تنظیم کنید</span>
                 </div>
               </div>
             </div>
@@ -1065,138 +1257,297 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
       {/* SCREEN 4: PROFESSIONAL RESULT VIEW (نمایش اسکن حرفه‌ای)     */}
       {/* ========================================================= */}
       {screen === 'result' && (
-        <div className="flex-1 flex flex-col relative bg-[#0a0a0a]">
+        <div className="flex-1 flex flex-col relative bg-slate-100 text-slate-900">
           {/* Result Top Header */}
-          <div className="h-14 bg-black/80 px-4 flex items-center justify-between border-b border-neutral-800 z-20">
+          <div className="h-13 bg-white px-3.5 flex items-center justify-between border-b border-slate-200 z-20 shadow-2xs">
             <button
               onClick={() => setScreen('home')}
-              className="p-1.5 text-neutral-300 hover:text-white cursor-pointer flex items-center gap-1 text-xs"
+              className="p-1.5 text-slate-700 hover:text-slate-950 cursor-pointer flex items-center gap-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 rounded-lg transition"
               title="بازگشت به خانه"
             >
-              <ChevronRight className="w-5 h-5" />
-              <span>صفحه اصلی</span>
+              <ChevronRight className="w-4 h-4" />
+              <span>خانه</span>
             </button>
 
-            <span className="text-xs font-bold text-white">پیش‌نمایش اسکن مدرک</span>
+            <div className="text-center">
+              <span className="text-xs font-bold text-slate-900 block">پیش‌نمایش برگه و خروجی</span>
+              <span className="text-[10px] text-slate-500">
+                {printSettings.layoutMode === '2-in-1' 
+                  ? 'برگه A4 • دو سند رو و پشت (با خط برش)' 
+                  : `برگه ${printSettings.pageSize} • ${printSettings.orientation === 'portrait' ? 'عمودی' : 'افقی'}`}
+              </span>
+            </div>
 
-            <span className="text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-medium">
-              کیفیت بالا
-            </span>
+            <button
+              onClick={() => setIsPrintModalOpen(true)}
+              className="p-1.5 text-emerald-700 hover:text-emerald-800 cursor-pointer flex items-center gap-1 text-xs font-bold bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition"
+              title="تنظیمات اندازه و چاپ"
+            >
+              <Settings2 className="w-3.5 h-3.5" />
+              <span>تنظیمات چاپ</span>
+            </button>
           </div>
 
-          {/* Document Preview Area with Crisp Paper Mount */}
-          <div className="flex-1 p-3 flex items-center justify-center overflow-hidden bg-neutral-950">
-            <div className="relative max-h-full max-w-full p-2 bg-white rounded-lg shadow-2xl border border-neutral-300 flex items-center justify-center">
-              <img
-                src={getActiveResultImage() || ''}
-                alt="سند اسکن شده"
-                className="max-h-[50vh] max-w-[85vw] object-contain block"
-              />
+          {/* Quick Paper Format Selector Bar */}
+          <div className="bg-white/95 border-b border-slate-200 px-3 py-1.5 flex items-center justify-between gap-1 overflow-x-auto text-xs z-10">
+            <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1 shrink-0">
+              <Printer className="w-3 h-3 text-emerald-600" />
+              قالب کاغذ:
+            </span>
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => {
+                  setPrintSettings(prev => ({ ...prev, pageSize: 'A4', layoutMode: '1-in-1' }));
+                  setIsSavedToGallery(false);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                  printSettings.pageSize === 'A4' && printSettings.layoutMode === '1-in-1'
+                    ? 'bg-emerald-600 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                A4 اداری
+              </button>
+
+              <button
+                onClick={() => {
+                  setPrintSettings(prev => ({ ...prev, pageSize: 'A5', layoutMode: '1-in-1' }));
+                  setIsSavedToGallery(false);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                  printSettings.pageSize === 'A5' && printSettings.layoutMode === '1-in-1'
+                    ? 'bg-emerald-600 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                A5 نیم‌صفحه
+              </button>
+
+              <button
+                onClick={() => {
+                  setPrintSettings(prev => ({ ...prev, pageSize: 'A4', layoutMode: '2-in-1' }));
+                  setIsSavedToGallery(false);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                  printSettings.layoutMode === '2-in-1'
+                    ? 'bg-emerald-600 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                ۲ در ۱ A4 (رو و پشت)
+              </button>
+            </div>
+          </div>
+
+          {/* Document Preview Area with Realistic Paper Sheet Display */}
+          <div className="flex-1 p-2.5 flex items-center justify-center overflow-hidden bg-slate-200/80 relative">
+            <div className="relative max-h-full max-w-full p-1.5 bg-white rounded-md shadow-xl border border-slate-300 flex flex-col items-center justify-center transition-all">
+              {isGeneratingPreview ? (
+                <div className="w-64 h-80 flex flex-col items-center justify-center gap-2 text-slate-500">
+                  <RefreshCw className="w-6 h-6 animate-spin text-emerald-600" />
+                  <span className="text-xs">در حال قالب‌بندی برگه {printSettings.pageSize}...</span>
+                </div>
+              ) : (
+                <img
+                  src={paperPreviewUrl || getActiveResultImage() || ''}
+                  alt="سند اسکن شده روی برگه"
+                  className="max-h-[44vh] max-w-[85vw] object-contain block rounded-xs"
+                />
+              )}
+
+              {/* 2-in-1 secondary document indicator/button if missing */}
+              {printSettings.layoutMode === '2-in-1' && !printSettings.secondaryPhoto && (
+                <div className="absolute bottom-2 left-2 right-2 bg-slate-900/90 backdrop-blur-xs text-white text-[11px] p-2 rounded-lg flex items-center justify-between shadow-lg">
+                  <span className="text-[10px] text-slate-200">کپی ۲ در ۱: سند دوم را اضافه کنید</span>
+                  <button
+                    onClick={() => setIsPrintModalOpen(true)}
+                    className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-2 py-1 rounded text-[10px] cursor-pointer"
+                  >
+                    + افزودن پشت مدرک
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Filter Chips Bar (فتوکپی / رنگی جادویی / خاکستری / اصلی) */}
-          <div className="bg-neutral-900/90 px-3 py-2 flex items-center justify-center gap-1.5 border-t border-neutral-800">
+          <div className="bg-white px-3 py-1.5 flex items-center justify-center gap-1.5 border-t border-slate-200 shadow-2xs">
             <button
-              onClick={() => setActiveFilter('photocopy')}
+              onClick={() => {
+                setActiveFilter('photocopy');
+                setIsSavedToGallery(false);
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                 activeFilter === 'photocopy'
-                  ? 'bg-emerald-500 text-neutral-950 shadow-sm'
-                  : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-750'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
               ⚡ فتوکپی واضح
             </button>
 
             <button
-              onClick={() => setActiveFilter('magic_color')}
+              onClick={() => {
+                setActiveFilter('magic_color');
+                setIsSavedToGallery(false);
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                 activeFilter === 'magic_color'
-                  ? 'bg-emerald-500 text-neutral-950 shadow-sm'
-                  : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-750'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
               ✨ اسکن رنگی
             </button>
 
             <button
-              onClick={() => setActiveFilter('grayscale')}
+              onClick={() => {
+                setActiveFilter('grayscale');
+                setIsSavedToGallery(false);
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                 activeFilter === 'grayscale'
-                  ? 'bg-emerald-500 text-neutral-950 shadow-sm'
-                  : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-750'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
               📄 خاکستری
             </button>
 
             <button
-              onClick={() => setActiveFilter('original')}
+              onClick={() => {
+                setActiveFilter('original');
+                setIsSavedToGallery(false);
+              }}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                 activeFilter === 'original'
-                  ? 'bg-emerald-500 text-neutral-950 shadow-sm'
-                  : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-750'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
               🖼️ اصلی
             </button>
           </div>
 
-          {/* Professional Action Buttons (PDF, Share, Rotate, Save) */}
-          <div className="p-3 bg-black/90 border-t border-neutral-800 space-y-2">
-            <div className="grid grid-cols-4 gap-2">
+          {/* Professional Action Buttons (Save to Gallery as JPEG, PDF, Print Settings, Share) */}
+          <div className="p-3 bg-white border-t border-slate-200 space-y-2">
+            {/* Primary Action: Dedicated 'Save to Gallery' Button (JPEG to Public Storage) */}
+            <button
+              id="btn-save-to-gallery"
+              onClick={saveToGalleryAsJpeg}
+              disabled={isSavingGallery}
+              className={`w-full py-2.5 px-3.5 rounded-xl text-xs font-bold flex items-center justify-between transition cursor-pointer border shadow-sm ${
+                isSavedToGallery
+                  ? 'bg-emerald-700 border-emerald-600 text-white shadow-emerald-700/20'
+                  : 'bg-emerald-600 hover:bg-emerald-500 border-emerald-600 text-white shadow-emerald-600/20'
+              }`}
+              title="ذخیره مستقیم برگه در گالری (حافظه عمومی دستگاه با فرمت JPEG)"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="p-1.5 rounded-lg bg-white/20">
+                  {isSavingGallery ? (
+                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                  ) : isSavedToGallery ? (
+                    <CheckCircle2 className="w-4 h-4 text-white" />
+                  ) : (
+                    <Download className="w-4 h-4 text-white" />
+                  )}
+                </div>
+                <div className="flex flex-col text-right">
+                  <span className="font-extrabold text-xs leading-tight">
+                    {isSavedToGallery ? '✓ در گالری ذخیره شد (Saved to Gallery)' : 'ذخیره در گالری (Save to Gallery)'}
+                  </span>
+                  <span className="text-[9px] text-emerald-100 font-medium">
+                    {printSettings.layoutMode === '2-in-1' 
+                      ? 'برگه A4 با ۲ سند رو و پشت (فرمت JPEG)' 
+                      : `برگه ${printSettings.pageSize} با فرمت JPEG`}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-white/25 text-white border border-white/30">
+                  JPEG
+                </span>
+              </div>
+            </button>
+
+            {/* Secondary Action Buttons Grid (PDF, Print Settings, Share, Rotate) */}
+            <div className="grid grid-cols-4 gap-1.5">
               <button
+                id="btn-export-pdf"
                 onClick={exportPdf}
-                className="bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-medium py-2 px-1 rounded-xl text-[11px] flex flex-col items-center justify-center gap-1 border border-neutral-700 cursor-pointer"
-                title="خروجی PDF"
+                disabled={isExportingPdf}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold py-2 px-1 rounded-xl text-[11px] flex flex-col items-center justify-center gap-1 border border-slate-200 cursor-pointer transition disabled:opacity-50"
+                title={`خروجی استاندارد سند ${printSettings.pageSize} (PDF)`}
               >
-                <FileText className="w-4 h-4 text-emerald-400" />
+                {isExportingPdf ? (
+                  <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" />
+                ) : (
+                  <FileText className="w-4 h-4 text-emerald-700" />
+                )}
                 <span>خروجی PDF</span>
               </button>
 
               <button
-                onClick={downloadImage}
-                className="bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-medium py-2 px-1 rounded-xl text-[11px] flex flex-col items-center justify-center gap-1 border border-neutral-700 cursor-pointer"
-                title="ذخیره تصویر در گالری"
+                id="btn-print-settings"
+                onClick={() => setIsPrintModalOpen(true)}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold py-2 px-1 rounded-xl text-[11px] flex flex-col items-center justify-center gap-1 border border-slate-200 cursor-pointer transition"
+                title="تنظیم ابعاد کاغذ (A4, A5, ۲ در ۱)"
               >
-                <Download className="w-4 h-4 text-blue-400" />
-                <span>ذخیره عکس</span>
+                <Sliders className="w-4 h-4 text-indigo-600" />
+                <span>تنظیمات کاغذ</span>
               </button>
 
               <button
+                id="btn-share-doc"
                 onClick={shareDocument}
-                className="bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-medium py-2 px-1 rounded-xl text-[11px] flex flex-col items-center justify-center gap-1 border border-neutral-700 cursor-pointer"
-                title="اشتراک‌گذاری"
+                className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold py-2 px-1 rounded-xl text-[11px] flex flex-col items-center justify-center gap-1 border border-slate-200 cursor-pointer transition"
+                title="اشتراک‌گذاری مدرک"
               >
-                <Share2 className="w-4 h-4 text-amber-400" />
-                <span>اشتراک</span>
+                <Share2 className="w-4 h-4 text-amber-600" />
+                <span>اشتراک‌گذاری</span>
               </button>
 
               <button
+                id="btn-rotate-doc"
                 onClick={rotateResult}
-                className="bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-medium py-2 px-1 rounded-xl text-[11px] flex flex-col items-center justify-center gap-1 border border-neutral-700 cursor-pointer"
-                title="چرخش ۹۰ درجه"
+                className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold py-2 px-1 rounded-xl text-[11px] flex flex-col items-center justify-center gap-1 border border-slate-200 cursor-pointer transition"
+                title="چرخش ۹۰ درجه تصویر"
               >
-                <RotateCcw className="w-4 h-4 text-neutral-300" />
-                <span>چرخش</span>
+                <RotateCcw className="w-4 h-4 text-slate-600" />
+                <span>چرخش ۹۰°</span>
               </button>
             </div>
 
             {/* Next Scan Action */}
             <button
+              id="btn-scan-next"
               onClick={() => setScreen('camera')}
-              className="w-full bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md"
+              className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-2 px-4 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer border border-slate-200 transition"
             >
-              <Camera className="w-4 h-4" />
+              <Camera className="w-4 h-4 text-emerald-700" />
               <span>اسکن مدرک بعدی</span>
             </button>
           </div>
         </div>
       )}
 
+      {/* Print Settings Modal */}
+      <PrintSettingsModal
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+        settings={printSettings}
+        onSettingsChange={(newSettings) => {
+          setPrintSettings(newSettings);
+          setIsSavedToGallery(false);
+        }}
+        capturedPhotos={photos}
+      />
+
       {/* Floating Toast Message */}
       {toastMessage && (
-        <div className="absolute top-10 left-1/2 -translate-x-1/2 bg-neutral-900/95 border border-emerald-500/40 text-neutral-100 text-xs px-4 py-2 rounded-full shadow-2xl z-50 flex items-center gap-2">
+        <div className="absolute top-10 left-1/2 -translate-x-1/2 bg-slate-900/95 border border-emerald-500/50 text-white text-xs px-4 py-2 rounded-full shadow-2xl z-50 flex items-center gap-2">
           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
           <span>{toastMessage}</span>
         </div>

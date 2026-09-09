@@ -226,6 +226,22 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+
+        // دکمه اختصاصی ذخیره مستقیم در گالری با فرمت JPEG و حافظه عمومی (Pictures)
+        binding.btnSaveToGallery.setOnClickListener {
+            getCurrentActiveBitmap()?.let { bmp ->
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val savedUri = ImageProcessor.saveToGalleryAsJpeg(this@MainActivity, bmp, "مدرک_اسکن_شده")
+                    withContext(Dispatchers.Main) {
+                        if (savedUri != null) {
+                            Toast.makeText(this@MainActivity, getString(R.string.saved_to_gallery_success), Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(this@MainActivity, getString(R.string.save_failed), Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun showHomeScreen() {
@@ -332,6 +348,34 @@ object ImageProcessor {
         canvas.drawBitmap(src, matrix, paint)
         return outBitmap
     }
+
+    /**
+     * ذخیره مستقیم سند پردازش‌شده در حافظه عمومی دستگاه (Pictures/Gallery) با فرمت JPEG
+     */
+    fun saveToGalleryAsJpeg(context: Context, bitmap: Bitmap, title: String = "Document_Scan"): Uri? {
+        val filename = "\${title}_\${System.currentTimeMillis()}.jpg"
+        val contentValues = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, filename)
+            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/PersianScanner")
+                put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+        }
+        val resolver = context.contentResolver
+        val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+        uri?.let {
+            resolver.openOutputStream(it)?.use { outputStream ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, outputStream)
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                contentValues.clear()
+                contentValues.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+                resolver.update(it, contentValues, null, null)
+            }
+        }
+        return uri
+    }
 }`
   },
   {
@@ -377,6 +421,131 @@ class CropOverlayView @JvmOverloads constructor(
 }`
   },
   {
+    path: 'app/src/main/java/com/example/persiancamera/ui/DocumentEdgeDetectionOverlayView.kt',
+    title: 'لایه کادر نیمه‌شفاف تشخیص لبه‌ها (DocumentEdgeDetectionOverlayView.kt)',
+    language: 'kotlin',
+    description: 'لایه گرافیکی هم‌زمان (Real-time UI Overlay) با کادر نیمه‌شفاف، خط لیزر متحرک و نشانگر وضعیت پایش لبه‌های مدرک',
+    content: `package com.example.persiancamera.ui
+
+import android.animation.ValueAnimator
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Shader
+import android.util.AttributeSet
+import android.view.View
+import android.view.animation.AccelerateDecelerateInterpolator
+
+class DocumentEdgeDetectionOverlayView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
+) : View(context, attrs, defStyleAttr) {
+
+    private var scanProgress = 0.1f
+    private val boxRect = RectF()
+
+    // پس‌زمینه نیمه‌شفاف کادر تشخیص مدرک
+    private val boxFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(38, 16, 185, 129) // سبز زمرّدی نیمه‌شفاف
+        style = Paint.Style.FILL
+    }
+
+    // خط دور کادر تشخیص
+    private val boxStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#34D399")
+        strokeWidth = 6f
+        style = Paint.Style.STROKE
+    }
+
+    // نشانگرهای ۴ گوشه مدرک
+    private val cornerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#10B981")
+        strokeWidth = 10f
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    // متن وضعیت اسکن لبه‌ها
+    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 34f
+        textAlign = Paint.Align.CENTER
+    }
+
+    // پرتو لیزری متحرک اسکن لبه‌ها
+    private val laserPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        strokeWidth = 6f
+        style = Paint.Style.STROKE
+    }
+
+    private var animator: ValueAnimator? = null
+
+    init {
+        startScanAnimation()
+    }
+
+    private fun startScanAnimation() {
+        animator = ValueAnimator.ofFloat(0.05f, 0.95f).apply {
+            duration = 2400
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = AccelerateDecelerateInterpolator()
+            addUpdateListener {
+                scanProgress = it.animatedValue as Float
+                postInvalidateOnAnimation()
+            }
+            start()
+        }
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        val boxWidth = w * 0.86f
+        val boxHeight = boxWidth * 1.42f
+        val left = (w - boxWidth) / 2f
+        val top = (h - boxHeight) / 2f
+        boxRect.set(left, top, left + boxWidth, top + boxHeight)
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        if (boxRect.isEmpty) return
+
+        // ۱. رسم کادر نیمه‌شفاف تشخیص مدرک
+        canvas.drawRoundRect(boxRect, 32f, 32f, boxFillPaint)
+        canvas.drawRoundRect(boxRect, 32f, 32f, boxStrokePaint)
+
+        // ۲. ردیاب‌های ۴ گوشه مدرک (Corner Reticles)
+        val cLen = 50f
+        canvas.drawLine(boxRect.left, boxRect.top, boxRect.left + cLen, boxRect.top, cornerPaint)
+        canvas.drawLine(boxRect.left, boxRect.top, boxRect.left, boxRect.top + cLen, cornerPaint)
+        canvas.drawLine(boxRect.right, boxRect.top, boxRect.right - cLen, boxRect.top, cornerPaint)
+        canvas.drawLine(boxRect.right, boxRect.top, boxRect.right, boxRect.top + cLen, cornerPaint)
+        canvas.drawLine(boxRect.left, boxRect.bottom, boxRect.left + cLen, boxRect.bottom, cornerPaint)
+        canvas.drawLine(boxRect.left, boxRect.bottom, boxRect.left, boxRect.bottom - cLen, cornerPaint)
+        canvas.drawLine(boxRect.right, boxRect.bottom, boxRect.right - cLen, boxRect.bottom, cornerPaint)
+        canvas.drawLine(boxRect.right, boxRect.bottom, boxRect.right, boxRect.bottom - cLen, cornerPaint)
+
+        // ۳. پرتو متحرک لیزر تشخیص لبه‌ها (Real-time Scan Laser Beam)
+        val laserY = boxRect.top + (boxRect.height() * scanProgress)
+        laserPaint.shader = LinearGradient(
+            boxRect.left, laserY, boxRect.right, laserY,
+            intArrayOf(Color.TRANSPARENT, Color.parseColor("#34D399"), Color.TRANSPARENT),
+            floatArrayOf(0f, 0.5f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawLine(boxRect.left, laserY, boxRect.right, laserY, laserPaint)
+
+        // ۴. پیام وضعیت لبه‌ها به کاربر
+        canvas.drawText("در حال پایش و اسکن لبه‌های مدرک...", boxRect.centerX(), boxRect.top - 24f, textPaint)
+    }
+}`
+  },
+  {
     path: 'app/src/main/java/com/example/persiancamera/camera/CameraManager.kt',
     title: 'مدیریت دوربین (CameraManager.kt)',
     language: 'kotlin',
@@ -414,11 +583,141 @@ class CameraManager(
     path: 'app/src/main/res/layout/activity_main.xml',
     title: 'لایه‌بندی ۴ صفحه‌ای (activity_main.xml)',
     language: 'xml',
-    description: 'رابط کاربری RTL شامل صفحه خانه (Home)، دوربین (Camera)، تنظیم گوشه‌ها (Crop) و پیش‌نمایش اسکن (Result)',
+    description: 'رابط کاربری RTL شامل صفحه خانه، دوربین با لایه کادر نیمه‌شفاف تشخیص لبه‌ها، تنظیم گوشه‌ها و پیش‌نمایش فتوکپی با دکمه ذخیره در گالری (JPEG) و تنظیمات ابعاد کاغذ',
     content: `<!-- لایه‌بندی ۴ صفحه‌ای اسکنر و فتوکپی مدرک -->
-<!-- ۱. homeView: صفحه اصلی با دکمه دوربین، گالری و اسناد اخیر -->
-<!-- ۲. cameraView: پیش‌نمایش زنده و کادر راهنما با فلاش پیش‌فرض خاموش -->
+<!-- ۱. homeView: صفحه اصلی با دکمه دوربین، گالری، تنظیم قالب برگه خروجی (A4, A5, ۲ در ۱) و اسناد اخیر -->
+<!-- ۲. cameraView: پیش‌نمایش زنده دوربین همراه با DocumentEdgeDetectionOverlayView (کادر نیمه‌شفاف تشخیص لبه‌ها) -->
 <!-- ۳. cropView: تنظیم تعاملی ۴ گوشه سند و چرخش زاویه -->
-<!-- ۴. resultOverlay: پیش‌نمایش فتوکپی، خروجی PDF و اشتراک‌گذاری -->`
+<!-- ۴. resultOverlay: پیش‌نمایش مدرک پردازش شده همراه با: -->
+<!--    - انتخابگر قالب چاپ: A4 اداری، A5 نیم‌صفحه، و ۲ در ۱ رو و پشت A4 با خط برش -->
+<!--    - btnSaveToGallery: ذخیره مستقیم برگه در گالری عمومی دستگاه به عنوان فایل JPEG -->
+<!--    - btnExportPdf: خروجی استاندارد PDF بر اساس ابعاد انتخابی کاغذ با کتابخانه بومی اندروید -->
+<!--    - فیلترهای فتوکپی کنتراست بالا، اسکن رنگی، خاکستری و اصلی -->`
+  },
+  {
+    path: 'app/src/main/java/com/example/persiancamera/print/PrintLayoutManager.kt',
+    title: 'تنظیمات چاپ و کاغذ استاندارد (PrintLayoutManager.kt)',
+    language: 'kotlin',
+    description: 'مدیریت خروجی چاپ استاندارد اندروید (قطع A4 اداری، A5 نیم‌برگ، چیدمان ۲ در ۱ رو و پشت با خط برش و حاشیه)',
+    content: `package com.example.persiancamera.print
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.DashPathEffect
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.pdf.PdfDocument
+import java.io.File
+import java.io.FileOutputStream
+
+enum class PageSize(val widthMm: Float, val heightMm: Float) {
+    A4(210f, 297f),
+    A5(148f, 210f)
+}
+
+enum class LayoutMode {
+    SINGLE_PAGE,     // ۱ سند در کل صفحه
+    TWO_IN_ONE_A4    // ۲ سند در یک صفحه A4 (رو و پشت با خط برش)
+}
+
+class PrintLayoutManager(private val context: Context) {
+
+    /**
+     * رندر مدرک روی بوم استاندارد کاغذ (A4 یا A5) یا ۲ سند در برگه A4
+     */
+    fun renderDocumentSheet(
+        frontDoc: Bitmap,
+        backDoc: Bitmap? = null,
+        pageSize: PageSize = PageSize.A4,
+        layoutMode: LayoutMode = LayoutMode.SINGLE_PAGE,
+        dpi: Int = 150
+    ): Bitmap {
+        val mmToPixel = dpi / 25.4f
+        val sheetWidth = (pageSize.widthMm * mmToPixel).toInt()
+        val sheetHeight = (pageSize.heightMm * mmToPixel).toInt()
+
+        val sheetBitmap = Bitmap.createBitmap(sheetWidth, sheetHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(sheetBitmap)
+
+        // ۱. پس‌زمینه کاغذ کاملاً سفید
+        canvas.drawColor(Color.WHITE)
+
+        val marginPx = 10f * mmToPixel // ۱۰ میلی‌متر حاشیه استاندارد اداری
+
+        when (layoutMode) {
+            LayoutMode.SINGLE_PAGE -> {
+                val availW = sheetWidth - 2 * marginPx
+                val availH = sheetHeight - 2 * marginPx
+                val scale = minOf(availW / frontDoc.width, availH / frontDoc.height)
+                val destW = frontDoc.width * scale
+                val destH = frontDoc.height * scale
+                val left = marginPx + (availW - destW) / 2f
+                val top = marginPx + (availH - destH) / 2f
+
+                canvas.drawBitmap(frontDoc, null, RectF(left, top, left + destW, top + destH), null)
+            }
+            LayoutMode.TWO_IN_ONE_A4 -> {
+                // تقسیم برگه A4 به دو نیمه افقی (بالا و پایین)
+                val halfHeight = sheetHeight / 2f
+                val availW = sheetWidth - 2 * marginPx
+                val availHalfH = halfHeight - 2 * marginPx
+
+                // سند اول (رو) در نیمه بالا
+                val scale1 = minOf(availW / frontDoc.width, availHalfH / frontDoc.height)
+                val destW1 = frontDoc.width * scale1
+                val destH1 = frontDoc.height * scale1
+                val left1 = marginPx + (availW - destW1) / 2f
+                val top1 = marginPx + (availHalfH - destH1) / 2f
+                canvas.drawBitmap(frontDoc, null, RectF(left1, top1, left1 + destW1, top1 + destH1), null)
+
+                // سند دوم (پشت) در نیمه پایین (یا تکرار سند اول)
+                val secondBitmap = backDoc ?: frontDoc
+                val scale2 = minOf(availW / secondBitmap.width, availHalfH / secondBitmap.height)
+                val destW2 = secondBitmap.width * scale2
+                val destH2 = secondBitmap.height * scale2
+                val left2 = marginPx + (availW - destW2) / 2f
+                val top2 = halfHeight + marginPx + (availHalfH - destH2) / 2f
+                canvas.drawBitmap(secondBitmap, null, RectF(left2, top2, left2 + destW2, top2 + destH2), null)
+
+                // رسم خط‌چین برش اداری ✂ در وسط صفحه
+                val cutLinePaint = Paint().apply {
+                    color = Color.parseColor("#94A3B8")
+                    strokeWidth = 2f
+                    style = Paint.Style.STROKE
+                    pathEffect = DashPathEffect(floatArrayOf(12f, 8f), 0f)
+                }
+                canvas.drawLine(marginPx, halfHeight, sheetWidth - marginPx, halfHeight, cutLinePaint)
+            }
+        }
+
+        return sheetBitmap
+    }
+
+    /**
+     * صدور فایل PDF استاندارد برداری برای پرینت با Android PdfDocument
+     */
+    fun exportToPdf(sheetBitmap: Bitmap, outputFile: File): Boolean {
+        val document = PdfDocument()
+        val pageInfo = PdfDocument.PageInfo.Builder(sheetBitmap.width, sheetBitmap.height, 1).create()
+        val page = document.startPage(pageInfo)
+
+        page.canvas.drawBitmap(sheetBitmap, 0f, 0f, null)
+        document.finishPage(page)
+
+        return try {
+            FileOutputStream(outputFile).use { out ->
+                document.writeTo(out)
+            }
+            document.close()
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            document.close()
+            false
+        }
+    }
+}`
   }
 ];
