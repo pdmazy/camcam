@@ -8,11 +8,17 @@ import android.view.animation.AlphaAnimation
 import android.view.animation.Animation
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
+import androidx.lifecycle.lifecycleScope
 import com.example.persiancamera.camera.CameraManager
 import com.example.persiancamera.databinding.ActivityMainBinding
+import com.example.persiancamera.util.ImageProcessor
 import com.example.persiancamera.util.PermissionUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : AppCompatActivity() {
 
@@ -47,6 +53,18 @@ class MainActivity : AppCompatActivity() {
 
         cameraManager = CameraManager(this, this, binding.viewFinder)
 
+        // Handle Back Press to dismiss result overlay
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (binding.resultOverlay.visibility == View.VISIBLE) {
+                    binding.resultOverlay.visibility = View.GONE
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        })
+
         setupListeners()
 
         if (PermissionUtils.hasPermissions(this)) {
@@ -64,15 +82,40 @@ class MainActivity : AppCompatActivity() {
 
             cameraManager.takePhoto(
                 onSuccess = { uri ->
-                    binding.btnCapture.isEnabled = true
                     lastCapturedUri = uri
-                    binding.imgLastCapture.setImageURI(uri)
 
-                    Toast.makeText(
-                        this@MainActivity,
-                        getString(R.string.photo_saved_success),
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    // Automatic conversion to Black & White (Grayscale)
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        val bitmap = ImageProcessor.decodeAndRotateBitmap(contentResolver, uri)
+                        if (bitmap != null) {
+                            val bwBitmap = ImageProcessor.toGrayscale(bitmap)
+                            // Overwrite saved file with black and white version
+                            ImageProcessor.saveBitmapToUri(contentResolver, uri, bwBitmap)
+
+                            withContext(Dispatchers.Main) {
+                                binding.btnCapture.isEnabled = true
+                                binding.imgResultBW.setImageBitmap(bwBitmap)
+                                binding.imgLastCapture.setImageBitmap(bwBitmap)
+                                binding.resultOverlay.visibility = View.VISIBLE
+
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    getString(R.string.bw_photo_saved),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                binding.btnCapture.isEnabled = true
+                                binding.imgLastCapture.setImageURI(uri)
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    getString(R.string.photo_saved_success),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    }
                 },
                 onError = { exc ->
                     binding.btnCapture.isEnabled = true
@@ -80,6 +123,11 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this@MainActivity, errorMsg, Toast.LENGTH_SHORT).show()
                 }
             )
+        }
+
+        // New Photo Button on Result Screen (گرفتن عکس جدید)
+        binding.btnNewPhoto.setOnClickListener {
+            binding.resultOverlay.visibility = View.GONE
         }
 
         // Switch Camera Button (تغییر دوربین)

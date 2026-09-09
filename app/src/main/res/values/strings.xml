@@ -11,4 +11,9 @@
     <string name="grant_permission">تأیید دسترسی</string>
     <string name="cancel">انصراف</string>
     <string name="saved_in_pictures">مسیر ذخیره‌سازی: تصاویر / PersianCamera</string>
+    <string name="bw_result_title">تصویر ثبت‌شده</string>
+    <string name="bw_converted_badge">تبدیل خودکار به سیاه و سفید</string>
+    <string name="take_another_photo">گرفتن عکس جدید</string>
+    <string name="bw_photo_saved">عکس با موفقیت ثبت و به سیاه و سفید تبدیل شد</string>
+    <string name="bw_image_desc">تصویر سیاه و سفید تبدیل شده</string>
 </resources>

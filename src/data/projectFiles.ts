@@ -74,7 +74,7 @@ jobs:
     path: 'app/src/main/java/com/example/persiancamera/MainActivity.kt',
     title: 'اکتیویتی اصلی (MainActivity.kt)',
     language: 'kotlin',
-    description: 'کنترلر رابط کاربری راست‌چین، درخواست مجوز دوربین و اتصال دکمه‌های شاتر و گالری',
+    description: 'کنترلر رابط کاربری راست‌چین، درخواست مجوز دوربین، ثبت عکس و تبدیل خودکار به سیاه و سفید',
     content: `package com.example.persiancamera
 
 import android.content.Intent
@@ -85,11 +85,17 @@ import android.view.animation.AlphaAnimation
 import android.view.animation.Animation
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
+import androidx.lifecycle.lifecycleScope
 import com.example.persiancamera.camera.CameraManager
 import com.example.persiancamera.databinding.ActivityMainBinding
+import com.example.persiancamera.util.ImageProcessor
 import com.example.persiancamera.util.PermissionUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : AppCompatActivity() {
 
@@ -116,6 +122,18 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         cameraManager = CameraManager(this, this, binding.viewFinder)
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (binding.resultOverlay.visibility == View.VISIBLE) {
+                    binding.resultOverlay.visibility = View.GONE
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                }
+            }
+        })
+
         setupListeners()
 
         if (PermissionUtils.hasPermissions(this)) {
@@ -126,22 +144,46 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
+        // Shutter Button (ثبت عکس و تبدیل خودکار به سیاه و سفید)
         binding.btnCapture.setOnClickListener {
             triggerShutterEffect()
             binding.btnCapture.isEnabled = false
 
             cameraManager.takePhoto(
                 onSuccess = { uri ->
-                    binding.btnCapture.isEnabled = true
                     lastCapturedUri = uri
-                    binding.imgLastCapture.setImageURI(uri)
-                    Toast.makeText(this@MainActivity, getString(R.string.photo_saved_success), Toast.LENGTH_SHORT).show()
+
+                    // تبدیل خودکار عکس به سیاه و سفید
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        val bitmap = ImageProcessor.decodeAndRotateBitmap(contentResolver, uri)
+                        if (bitmap != null) {
+                            val bwBitmap = ImageProcessor.toGrayscale(bitmap)
+                            ImageProcessor.saveBitmapToUri(contentResolver, uri, bwBitmap)
+
+                            withContext(Dispatchers.Main) {
+                                binding.btnCapture.isEnabled = true
+                                binding.imgResultBW.setImageBitmap(bwBitmap)
+                                binding.imgLastCapture.setImageBitmap(bwBitmap)
+                                binding.resultOverlay.visibility = View.VISIBLE
+                                Toast.makeText(this@MainActivity, getString(R.string.bw_photo_saved), Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                binding.btnCapture.isEnabled = true
+                                binding.imgLastCapture.setImageURI(uri)
+                            }
+                        }
+                    }
                 },
                 onError = { exc ->
                     binding.btnCapture.isEnabled = true
                     Toast.makeText(this@MainActivity, getString(R.string.photo_save_failed, exc.message), Toast.LENGTH_SHORT).show()
                 }
             )
+        }
+
+        binding.btnNewPhoto.setOnClickListener {
+            binding.resultOverlay.visibility = View.GONE
         }
 
         binding.btnSwitchCamera.setOnClickListener {
@@ -151,6 +193,78 @@ class MainActivity : AppCompatActivity() {
         binding.btnFlash.setOnClickListener {
             val status = cameraManager.toggleFlash()
             Toast.makeText(this, "فلاش: $status", Toast.LENGTH_SHORT).show()
+        }
+    }
+}`
+  },
+  {
+    path: 'app/src/main/java/com/example/persiancamera/util/ImageProcessor.kt',
+    title: 'پردازش تصویر سیاه و سفید (ImageProcessor.kt)',
+    language: 'kotlin',
+    description: 'موتور تبدیل تصاویر به سیاه و سفید با ColorMatrix و تصحیح چرخش زاویه EXIF',
+    content: `package com.example.persiancamera.util
+
+import android.content.ContentResolver
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.media.ExifInterface
+import android.net.Uri
+
+object ImageProcessor {
+    fun toGrayscale(src: Bitmap): Bitmap {
+        val dest = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(dest)
+        val paint = Paint()
+        val colorMatrix = ColorMatrix().apply {
+            setSaturation(0f)
+        }
+        paint.colorFilter = ColorMatrixColorFilter(colorMatrix)
+        canvas.drawBitmap(src, 0f, 0f, paint)
+        return dest
+    }
+
+    fun decodeAndRotateBitmap(contentResolver: ContentResolver, uri: Uri): Bitmap? {
+        return try {
+            var orientation = ExifInterface.ORIENTATION_NORMAL
+            contentResolver.openInputStream(uri)?.use { stream ->
+                val exif = ExifInterface(stream)
+                orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+            }
+            var bitmap: Bitmap? = null
+            contentResolver.openInputStream(uri)?.use { stream ->
+                bitmap = BitmapFactory.decodeStream(stream)
+            }
+            if (bitmap == null) return null
+            val rotationDegrees = when (orientation) {
+                ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                else -> 0f
+            }
+            if (rotationDegrees != 0f) {
+                val matrix = Matrix().apply { postRotate(rotationDegrees) }
+                Bitmap.createBitmap(bitmap!!, 0, 0, bitmap!!.width, bitmap!!.height, matrix, true)
+            } else {
+                bitmap
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun saveBitmapToUri(contentResolver: ContentResolver, uri: Uri, bitmap: Bitmap): Boolean {
+        return try {
+            contentResolver.openOutputStream(uri)?.use { stream ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, stream)
+            } ?: false
+            true
+        } catch (e: Exception) {
+            false
         }
     }
 }`

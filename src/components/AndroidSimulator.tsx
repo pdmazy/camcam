@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, RotateCcw, Zap, ZapOff, Trash2, Download, X, Image as ImageIcon, CheckCircle2 } from 'lucide-react';
+import { Camera, RotateCcw, Zap, ZapOff, Trash2, Download, X, Image as ImageIcon, CheckCircle2, Sparkles } from 'lucide-react';
 import { CapturedPhoto } from '../types';
 
 interface AndroidSimulatorProps {
@@ -15,6 +15,7 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
   const [flashMode, setFlashMode] = useState<'auto' | 'on' | 'off'>('auto');
   const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<CapturedPhoto | null>(null);
+  const [bwResult, setBwResult] = useState<CapturedPhoto | null>(null);
   const [showGallery, setShowGallery] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isShutterActive, setIsShutterActive] = useState(false);
@@ -98,6 +99,18 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
           ctx.scale(-1, 1);
         }
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Convert image data to Black & White (Grayscale)
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const d = imgData.data;
+        for (let i = 0; i < d.length; i += 4) {
+          const gray = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+          d[i] = gray;
+          d[i + 1] = gray;
+          d[i + 2] = gray;
+        }
+        ctx.putImageData(imgData, 0, 0);
+
         dataUrl = canvas.toDataURL('image/jpeg', 0.92);
       }
     } else {
@@ -116,6 +129,18 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
       ctx.font = '24px Vazirmatn, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('عکس ثبت شده با دوربین فارسی', 320, 248);
+
+      // Convert dummy image data to Grayscale
+      const imgData = ctx.getImageData(0, 0, 640, 480);
+      const d = imgData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const gray = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+        d[i] = gray;
+        d[i + 1] = gray;
+        d[i + 2] = gray;
+      }
+      ctx.putImageData(imgData, 0, 0);
+
       dataUrl = dummyCanvas.toDataURL('image/jpeg', 0.85);
     }
 
@@ -132,8 +157,9 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
 
     const updated = [newPhoto, ...photos];
     setPhotos(updated);
+    setBwResult(newPhoto);
     onPhotoCountChange?.(updated.length);
-    showToast('عکس با موفقیت در گالری ذخیره شد');
+    showToast('عکس با موفقیت ثبت و به سیاه و سفید تبدیل شد');
   };
 
   const handleSwitchCamera = () => {
@@ -383,6 +409,53 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Automatic Black & White Result Screen Overlay (نمایش خودکار تصویر سیاه و سفید) */}
+          {bwResult && (
+            <div id="bw-result-overlay" className="absolute inset-0 z-40 bg-neutral-950 flex flex-col animate-fade-in" dir="rtl">
+              {/* Header */}
+              <div className="h-14 px-4 bg-neutral-900 border-b border-neutral-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-emerald-400 shrink-0" />
+                  <span className="font-bold text-sm text-white">تصویر ثبت‌شده</span>
+                </div>
+                <span className="text-[11px] text-emerald-400 bg-emerald-950/80 border border-emerald-800/60 px-2.5 py-1 rounded-full font-medium">
+                  تبدیل خودکار به سیاه و سفید
+                </span>
+              </div>
+
+              {/* Black & White Photo Display */}
+              <div className="flex-1 flex items-center justify-center p-4 bg-neutral-950 overflow-hidden relative">
+                <img
+                  src={bwResult.dataUrl}
+                  alt="تصویر سیاه و سفید"
+                  className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl border border-neutral-800"
+                />
+              </div>
+
+              {/* Bottom Actions Bar */}
+              <div className="p-4 bg-neutral-900/90 border-t border-neutral-800 flex flex-col gap-2">
+                <button
+                  id="btn-take-another-photo"
+                  onClick={() => setBwResult(null)}
+                  className="w-full h-12 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/30 transition-all cursor-pointer"
+                >
+                  <Camera className="w-5 h-5" />
+                  <span>گرفتن عکس جدید</span>
+                </button>
+                <div className="flex items-center justify-between px-1 text-[11px] text-neutral-400">
+                  <span>ساعت: {bwResult.timestamp}</span>
+                  <button
+                    onClick={() => handleDownloadPhoto(bwResult)}
+                    className="text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>ذخیره در دستگاه</span>
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
