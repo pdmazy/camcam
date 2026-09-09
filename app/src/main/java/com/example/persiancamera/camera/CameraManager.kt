@@ -34,8 +34,8 @@ class CameraManager(
     // Current camera lens facing (default to Back camera)
     private var lensFacing: Int = CameraSelector.LENS_FACING_BACK
 
-    // Flash mode: AUTO -> ON -> OFF
-    private var flashMode: Int = ImageCapture.FLASH_MODE_AUTO
+    // Flash mode: default strictly OFF for natural document scanning without unwanted glare
+    private var flashMode: Int = ImageCapture.FLASH_MODE_OFF
 
     fun startCamera(onReady: () -> Unit = {}, onError: (Exception) -> Unit = {}) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
@@ -62,7 +62,7 @@ class CameraManager(
             }
 
         imageCapture = ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
             .setFlashMode(flashMode)
             .build()
 
@@ -94,17 +94,19 @@ class CameraManager(
 
     fun toggleFlash(): String {
         flashMode = when (flashMode) {
-            ImageCapture.FLASH_MODE_AUTO -> ImageCapture.FLASH_MODE_ON
-            ImageCapture.FLASH_MODE_ON -> ImageCapture.FLASH_MODE_OFF
-            else -> ImageCapture.FLASH_MODE_AUTO
+            ImageCapture.FLASH_MODE_OFF -> ImageCapture.FLASH_MODE_ON
+            ImageCapture.FLASH_MODE_ON -> ImageCapture.FLASH_MODE_AUTO
+            else -> ImageCapture.FLASH_MODE_OFF
         }
         imageCapture?.flashMode = flashMode
         return when (flashMode) {
             ImageCapture.FLASH_MODE_ON -> "روشن"
-            ImageCapture.FLASH_MODE_OFF -> "خاموش"
-            else -> "خودکار"
+            ImageCapture.FLASH_MODE_AUTO -> "خودکار"
+            else -> "خاموش"
         }
     }
+
+    fun isFlashOn(): Boolean = flashMode != ImageCapture.FLASH_MODE_OFF
 
     fun takePhoto(
         onSuccess: (Uri) -> Unit,

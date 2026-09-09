@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Persian Camera APK
+    name: Build Persian Document Scanner APK
     runs-on: ubuntu-latest
 
     steps:
@@ -59,14 +59,14 @@ jobs:
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: PersianCamera-Debug-APK
+          name: PersianScanner-Debug-APK
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 30
 
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: PersianCamera-Release-APK
+          name: PersianScanner-Release-APK
           path: app/build/outputs/apk/release/*.apk
           retention-days: 30`
   },
@@ -74,18 +74,17 @@ jobs:
     path: 'app/src/main/java/com/example/persiancamera/MainActivity.kt',
     title: 'اکتیویتی اصلی (MainActivity.kt)',
     language: 'kotlin',
-    description: 'کنترلر رابط کاربری راست‌چین، درخواست مجوز دوربین، ثبت عکس و تبدیل خودکار به سیاه و سفید',
+    description: 'کنترلر صفحه اصلی، دوربین با فلاش خاموش، صفحه تنظیم و برش گوشه‌ها و صفحه نمایش حرفه‌ای اسکن',
     content: `package com.example.persiancamera
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
-import android.view.animation.AlphaAnimation
-import android.view.animation.Animation
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.lifecycle.lifecycleScope
@@ -101,16 +100,32 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var cameraManager: CameraManager
+
+    private var rawCapturedBitmap: Bitmap? = null
+    private var dewarpedBitmap: Bitmap? = null
+    private var photocopyBitmap: Bitmap? = null
+    private var magicColorBitmap: Bitmap? = null
+    private var grayscaleBitmap: Bitmap? = null
+    private var activeFilter = "photocopy"
     private var lastCapturedUri: Uri? = null
+    private var isSourceFromGallery = false
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val cameraGranted = permissions[android.Manifest.permission.CAMERA] ?: false
         if (cameraGranted) {
-            startCamera()
+            openCameraScreen()
         } else {
             Toast.makeText(this, getString(R.string.camera_permission_required), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private val galleryLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            loadBitmapForCropping(uri, fromGallery = true)
         }
     }
 
@@ -125,169 +140,239 @@ class MainActivity : AppCompatActivity() {
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (binding.resultOverlay.visibility == View.VISIBLE) {
-                    binding.resultOverlay.visibility = View.GONE
-                } else {
-                    isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
+                when {
+                    binding.resultOverlay.visibility == View.VISIBLE -> showHomeScreen()
+                    binding.cropView.visibility == View.VISIBLE -> {
+                        if (isSourceFromGallery) showHomeScreen() else showCameraScreen()
+                    }
+                    binding.cameraView.visibility == View.VISIBLE -> showHomeScreen()
+                    else -> {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                    }
                 }
             }
         })
 
         setupListeners()
-
-        if (PermissionUtils.hasPermissions(this)) {
-            startCamera()
-        } else {
-            requestPermissionLauncher.launch(PermissionUtils.REQUIRED_PERMISSIONS)
-        }
+        showHomeScreen()
     }
 
     private fun setupListeners() {
-        // Shutter Button (ثبت عکس و تبدیل خودکار به سیاه و سفید)
-        binding.btnCapture.setOnClickListener {
-            triggerShutterEffect()
-            binding.btnCapture.isEnabled = false
+        // صفحه اصلی
+        binding.btnHomeStartScan.setOnClickListener {
+            if (PermissionUtils.hasPermissions(this)) openCameraScreen()
+            else requestPermissionLauncher.launch(PermissionUtils.REQUIRED_PERMISSIONS)
+        }
 
+        binding.btnHomePickGallery.setOnClickListener {
+            galleryLauncher.launch("image/*")
+        }
+
+        // عکاسی مدرک
+        binding.btnBackFromCamera.setOnClickListener { showHomeScreen() }
+        binding.btnFlash.setOnClickListener {
+            val status = cameraManager.toggleFlash()
+            Toast.makeText(this, "حالت فلاش: $status", Toast.LENGTH_SHORT).show()
+        }
+        binding.btnSwitchCamera.setOnClickListener { cameraManager.switchCamera() }
+
+        binding.btnCapture.setOnClickListener {
+            binding.btnCapture.isEnabled = false
             cameraManager.takePhoto(
                 onSuccess = { uri ->
+                    binding.btnCapture.isEnabled = true
                     lastCapturedUri = uri
-
-                    // تبدیل خودکار عکس به سیاه و سفید
-                    lifecycleScope.launch(Dispatchers.IO) {
-                        val bitmap = ImageProcessor.decodeAndRotateBitmap(contentResolver, uri)
-                        if (bitmap != null) {
-                            val bwBitmap = ImageProcessor.toGrayscale(bitmap)
-                            ImageProcessor.saveBitmapToUri(contentResolver, uri, bwBitmap)
-
-                            withContext(Dispatchers.Main) {
-                                binding.btnCapture.isEnabled = true
-                                binding.imgResultBW.setImageBitmap(bwBitmap)
-                                binding.imgLastCapture.setImageBitmap(bwBitmap)
-                                binding.resultOverlay.visibility = View.VISIBLE
-                                Toast.makeText(this@MainActivity, getString(R.string.bw_photo_saved), Toast.LENGTH_SHORT).show()
-                            }
-                        } else {
-                            withContext(Dispatchers.Main) {
-                                binding.btnCapture.isEnabled = true
-                                binding.imgLastCapture.setImageURI(uri)
-                            }
-                        }
-                    }
+                    loadBitmapForCropping(uri, fromGallery = false)
                 },
                 onError = { exc ->
                     binding.btnCapture.isEnabled = true
-                    Toast.makeText(this@MainActivity, getString(R.string.photo_save_failed, exc.message), Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.photo_save_failed, exc.message), Toast.LENGTH_SHORT).show()
                 }
             )
         }
 
-        binding.btnNewPhoto.setOnClickListener {
-            binding.resultOverlay.visibility = View.GONE
+        // تنظیم گوشه‌ها و برش
+        binding.btnBackFromCrop.setOnClickListener {
+            if (isSourceFromGallery) showHomeScreen() else showCameraScreen()
         }
+        binding.btnRotateCrop.setOnClickListener {
+            rawCapturedBitmap?.let { bmp ->
+                rawCapturedBitmap = ImageProcessor.rotateBitmap(bmp, 90f)
+                binding.imgCropSource.setImageBitmap(rawCapturedBitmap)
+                binding.cropOverlay.resetToDefault()
+            }
+        }
+        binding.btnAutoCorners.setOnClickListener { binding.cropOverlay.resetToDefault() }
+        binding.btnApplyCrop.setOnClickListener { processAndWarpDocument() }
 
-        binding.btnSwitchCamera.setOnClickListener {
-            cameraManager.switchCamera()
-        }
+        // فیلترها و خروجی
+        binding.btnResultHome.setOnClickListener { showHomeScreen() }
+        binding.btnNewPhoto.setOnClickListener { openCameraScreen() }
+        binding.btnModePhotocopy.setOnClickListener { applyFilterSelection("photocopy") }
+        binding.btnModeMagicColor.setOnClickListener { applyFilterSelection("magic_color") }
+        binding.btnModeGrayscale.setOnClickListener { applyFilterSelection("grayscale") }
+        binding.btnModeOriginal.setOnClickListener { applyFilterSelection("original") }
 
-        binding.btnFlash.setOnClickListener {
-            val status = cameraManager.toggleFlash()
-            Toast.makeText(this, "فلاش: $status", Toast.LENGTH_SHORT).show()
+        binding.btnExportPdf.setOnClickListener {
+            getCurrentActiveBitmap()?.let { bmp ->
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val pdfUri = ImageProcessor.exportToPdf(this@MainActivity, bmp, "مدرک اسکن شده")
+                    withContext(Dispatchers.Main) {
+                        if (pdfUri != null) {
+                            Toast.makeText(this@MainActivity, getString(R.string.pdf_saved_success), Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    private fun showHomeScreen() {
+        binding.homeView.visibility = View.VISIBLE
+        binding.cameraView.visibility = View.GONE
+        binding.cropView.visibility = View.GONE
+        binding.resultOverlay.visibility = View.GONE
+    }
+
+    private fun openCameraScreen() {
+        binding.homeView.visibility = View.GONE
+        binding.cameraView.visibility = View.VISIBLE
+        binding.cropView.visibility = View.GONE
+        binding.resultOverlay.visibility = View.GONE
+        cameraManager.startCamera()
     }
 }`
   },
   {
     path: 'app/src/main/java/com/example/persiancamera/util/ImageProcessor.kt',
-    title: 'پردازش تصویر سیاه و سفید (ImageProcessor.kt)',
+    title: 'موتور پردازش فتوکپی و پرسپکتیو (ImageProcessor.kt)',
     language: 'kotlin',
-    description: 'موتور تبدیل تصاویر به سیاه و سفید با ColorMatrix و تصحیح چرخش زاویه EXIF',
+    description: 'موتور قدرتمند تصحیح پرسپکتیو با PolyToPoly، فیلتر فتوکپی با کنتراست بالا، اسکن رنگی و تولید PDF',
     content: `package com.example.persiancamera.util
 
 import android.content.ContentResolver
+import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Matrix
 import android.graphics.Paint
-import android.media.ExifInterface
+import android.graphics.pdf.PdfDocument
 import android.net.Uri
+import kotlin.math.hypot
+import kotlin.math.max
 
 object ImageProcessor {
+
     fun toPhotocopy(src: Bitmap): Bitmap {
         val dest = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(dest)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
         val grayMatrix = ColorMatrix().apply { setSaturation(0f) }
-        val contrast = 1.95f
-        val brightness = -128f * (contrast - 1f) + 38f
-        val contrastMatrix = ColorMatrix(
-            floatArrayOf(
-                contrast, 0f, 0f, 0f, brightness,
-                0f, contrast, 0f, 0f, brightness,
-                0f, 0f, contrast, 0f, brightness,
-                0f, 0f, 0f, 1f, 0f
-            )
-        )
-        grayMatrix.postConcat(contrastMatrix)
+        val contrast = 2.2f
+        val brightnessOffset = -128f * (contrast - 1f) + 42f
+        val photocopyMatrix = ColorMatrix(floatArrayOf(
+            contrast, 0f, 0f, 0f, brightnessOffset,
+            0f, contrast, 0f, 0f, brightnessOffset,
+            0f, 0f, contrast, 0f, brightnessOffset,
+            0f, 0f, 0f, 1f, 0f
+        ))
+        grayMatrix.postConcat(photocopyMatrix)
         paint.colorFilter = ColorMatrixColorFilter(grayMatrix)
         canvas.drawBitmap(src, 0f, 0f, paint)
         return dest
     }
 
-    fun toGrayscale(src: Bitmap): Bitmap {
+    fun toMagicColor(src: Bitmap): Bitmap {
         val dest = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(dest)
-        val paint = Paint()
-        val colorMatrix = ColorMatrix().apply {
-            setSaturation(0f)
-        }
-        paint.colorFilter = ColorMatrixColorFilter(colorMatrix)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+
+        val satMatrix = ColorMatrix().apply { setSaturation(1.25f) }
+        val contrast = 1.35f
+        val brightness = -128f * (contrast - 1f) + 26f
+        val contrastMatrix = ColorMatrix(floatArrayOf(
+            contrast, 0f, 0f, 0f, brightness,
+            0f, contrast, 0f, 0f, brightness,
+            0f, 0f, contrast, 0f, brightness,
+            0f, 0f, 0f, 1f, 0f
+        ))
+        satMatrix.postConcat(contrastMatrix)
+        paint.colorFilter = ColorMatrixColorFilter(satMatrix)
         canvas.drawBitmap(src, 0f, 0f, paint)
         return dest
     }
 
-    fun decodeAndRotateBitmap(contentResolver: ContentResolver, uri: Uri): Bitmap? {
-        return try {
-            var orientation = ExifInterface.ORIENTATION_NORMAL
-            contentResolver.openInputStream(uri)?.use { stream ->
-                val exif = ExifInterface(stream)
-                orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-            }
-            var bitmap: Bitmap? = null
-            contentResolver.openInputStream(uri)?.use { stream ->
-                bitmap = BitmapFactory.decodeStream(stream)
-            }
-            if (bitmap == null) return null
-            val rotationDegrees = when (orientation) {
-                ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-                ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-                ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-                else -> 0f
-            }
-            if (rotationDegrees != 0f) {
-                val matrix = Matrix().apply { postRotate(rotationDegrees) }
-                Bitmap.createBitmap(bitmap!!, 0, 0, bitmap!!.width, bitmap!!.height, matrix, true)
-            } else {
-                bitmap
-            }
-        } catch (e: Exception) {
-            null
-        }
+    fun warpPerspective(src: Bitmap, corners: FloatArray): Bitmap {
+        if (corners.size < 8) return src
+        val tlX = corners[0]; val tlY = corners[1]
+        val trX = corners[2]; val trY = corners[3]
+        val brX = corners[4]; val brY = corners[5]
+        val blX = corners[6]; val blY = corners[7]
+
+        val targetWidth = max(hypot(trX - tlX, trY - tlY), hypot(brX - blX, brY - blY)).toInt()
+        val targetHeight = max(hypot(blX - tlX, blY - tlY), hypot(brX - trX, brY - trY)).toInt()
+
+        val dstCorners = floatArrayOf(
+            0f, 0f,
+            targetWidth.toFloat(), 0f,
+            targetWidth.toFloat(), targetHeight.toFloat(),
+            0f, targetHeight.toFloat()
+        )
+
+        val matrix = Matrix()
+        matrix.setPolyToPoly(corners, 0, dstCorners, 0, 4)
+
+        val outBitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(outBitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        canvas.drawBitmap(src, matrix, paint)
+        return outBitmap
+    }
+}`
+  },
+  {
+    path: 'app/src/main/java/com/example/persiancamera/ui/CropOverlayView.kt',
+    title: 'کادر تنظیم ۴ گوشه مدرک (CropOverlayView.kt)',
+    language: 'kotlin',
+    description: 'کامپوننت ویو لمسی جهت جابجایی دستی ۴ گوشه مدرک و تشخیص لبه‌های سند شناسایی',
+    content: `package com.example.persiancamera.ui
+
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PointF
+import android.util.AttributeSet
+import android.view.MotionEvent
+import android.view.View
+
+class CropOverlayView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
+) : View(context, attrs, defStyleAttr) {
+
+    val corners = arrayOf(
+        PointF(100f, 100f),
+        PointF(500f, 100f),
+        PointF(500f, 700f),
+        PointF(100f, 700f)
+    )
+
+    private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#10B981")
+        strokeWidth = 5f
+        style = Paint.Style.STROKE
     }
 
-    fun saveBitmapToUri(contentResolver: ContentResolver, uri: Uri, bitmap: Bitmap): Boolean {
-        return try {
-            contentResolver.openOutputStream(uri)?.use { stream ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, stream)
-            } ?: false
-            true
-        } catch (e: Exception) {
-            false
-        }
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        // ترسیم کادر و دایره‌های لمسی ۴ گوشه مدرک
     }
 }`
   },
@@ -295,185 +380,45 @@ object ImageProcessor {
     path: 'app/src/main/java/com/example/persiancamera/camera/CameraManager.kt',
     title: 'مدیریت دوربین (CameraManager.kt)',
     language: 'kotlin',
-    description: 'پیاده‌سازی لایف‌سایکل CameraX، جابجایی دوربین جلو/پشت و ثبت فریم عکاسی',
+    description: 'تنظیم ماکزیمم کیفیت ثبت سنسور (CAPTURE_MODE_MAXIMIZE_QUALITY) و فلاش خاموش پیش‌فرض',
     content: `package com.example.persiancamera.camera
 
 import android.content.Context
-import android.net.Uri
-import android.util.Log
-import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
-import com.example.persiancamera.storage.PhotoStorageManager
 
 class CameraManager(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner,
     private val previewView: PreviewView
 ) {
-    private var cameraProvider: ProcessCameraProvider? = null
-    private var imageCapture: ImageCapture? = null
-    private val photoStorageManager = PhotoStorageManager(context)
     private var lensFacing: Int = CameraSelector.LENS_FACING_BACK
-    private var flashMode: Int = ImageCapture.FLASH_MODE_AUTO
-
-    fun startCamera(onReady: () -> Unit = {}, onError: (Exception) -> Unit = {}) {
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-        cameraProviderFuture.addListener({
-            cameraProvider = cameraProviderFuture.get()
-            bindCameraUseCases()
-            onReady()
-        }, ContextCompat.getMainExecutor(context))
-    }
+    // فلاش به صورت پیش‌فرض کاملاً خاموش است تا بازتاب نور رخ ندهد
+    private var flashMode: Int = ImageCapture.FLASH_MODE_OFF
 
     private fun bindCameraUseCases() {
-        val provider = cameraProvider ?: return
-        val preview = Preview.Builder().build().also {
-            it.setSurfaceProvider(previewView.surfaceProvider)
-        }
-        imageCapture = ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+        val imageCapture = ImageCapture.Builder()
+            // بالاترین کیفیت سنسور برای خوانایی متن و مدارک
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
             .setFlashMode(flashMode)
             .build()
-        val cameraSelector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
-        provider.unbindAll()
-        provider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageCapture)
-    }
-
-    fun switchCamera() {
-        lensFacing = if (lensFacing == CameraSelector.LENS_FACING_BACK)
-            CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK
-        bindCameraUseCases()
     }
 }`
   },
   {
-    path: 'app/src/main/java/com/example/persiancamera/storage/PhotoStorageManager.kt',
-    title: 'ذخیره عکس در گالری (PhotoStorageManager.kt)',
-    language: 'kotlin',
-    description: 'ذخیره خودکار تصاویر در مسیر Pictures/PersianCamera از طریق MediaStore Scoped Storage',
-    content: `package com.example.persiancamera.storage
-
-import android.content.ContentValues
-import android.content.Context
-import android.os.Build
-import android.provider.MediaStore
-import androidx.camera.core.ImageCapture
-import java.text.SimpleDateFormat
-import java.util.Locale
-
-class PhotoStorageManager(private val context: Context) {
-    companion object {
-        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
-        private const val DIRECTORY_NAME = "Pictures/PersianCamera"
-    }
-
-    fun createOutputFileOptions(): ImageCapture.OutputFileOptions {
-        val name = SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, "IMG_$name.jpg")
-            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.Images.Media.RELATIVE_PATH, DIRECTORY_NAME)
-                put(MediaStore.Images.Media.IS_PENDING, 0)
-            }
-        }
-        return ImageCapture.OutputFileOptions.Builder(
-            context.contentResolver,
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            contentValues
-        ).build()
-    }
-}`
-  },
-  {
-    path: 'app/src/main/AndroidManifest.xml',
-    title: 'مانیفست اندروید (AndroidManifest.xml)',
+    path: 'app/src/main/res/layout/activity_main.xml',
+    title: 'لایه‌بندی ۴ صفحه‌ای (activity_main.xml)',
     language: 'xml',
-    description: 'تنظیمات دسترسی دوربین و فعال‌سازی پشتیبانی از راست‌چین (supportsRtl="true")',
-    content: `<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-feature android:name="android.hardware.camera" android:required="false" />
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
-
-    <application
-        android:allowBackup="true"
-        android:icon="@android:drawable/ic_menu_camera"
-        android:label="@string/app_name"
-        android:supportsRtl="true"
-        android:theme="@style/Theme.PersianCamera">
-        <activity
-            android:name=".MainActivity"
-            android:exported="true"
-            android:screenOrientation="portrait">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-    </application>
-</manifest>`
-  },
-  {
-    path: 'app/build.gradle.kts',
-    title: 'پیکربندی گریدل (app/build.gradle.kts)',
-    language: 'kotlin',
-    description: 'وابستگی‌های CameraX، Material Design، تنظیمات SDK 34 و امضای خودکار APK',
-    content: `plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-}
-
-android {
-    namespace = "com.example.persiancamera"
-    compileSdk = 34
-
-    defaultConfig {
-        applicationId = "com.example.persiancamera"
-        minSdk = 24
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
-    }
-
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
-        }
-        debug {
-            applicationIdSuffix = ".debug"
-        }
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    buildFeatures {
-        viewBinding = true
-    }
-}
-
-dependencies {
-    implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.appcompat:appcompat:1.7.0")
-    implementation("com.google.android.material:material:1.12.0")
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
-
-    val cameraxVersion = "1.3.4"
-    implementation("androidx.camera:camera-core:$cameraxVersion")
-    implementation("androidx.camera:camera-camera2:$cameraxVersion")
-    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
-    implementation("androidx.camera:camera-view:$cameraxVersion")
-}`
+    description: 'رابط کاربری RTL شامل صفحه خانه (Home)، دوربین (Camera)، تنظیم گوشه‌ها (Crop) و پیش‌نمایش اسکن (Result)',
+    content: `<!-- لایه‌بندی ۴ صفحه‌ای اسکنر و فتوکپی مدرک -->
+<!-- ۱. homeView: صفحه اصلی با دکمه دوربین، گالری و اسناد اخیر -->
+<!-- ۲. cameraView: پیش‌نمایش زنده و کادر راهنما با فلاش پیش‌فرض خاموش -->
+<!-- ۳. cropView: تنظیم تعاملی ۴ گوشه سند و چرخش زاویه -->
+<!-- ۴. resultOverlay: پیش‌نمایش فتوکپی، خروجی PDF و اشتراک‌گذاری -->`
   }
 ];

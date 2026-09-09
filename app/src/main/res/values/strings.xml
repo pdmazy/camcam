@@ -1,23 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">اسکنر و فتوکپی مدارک</string>
-    <string name="capture_photo">اسکن و فتوکپی مدرک</string>
+    <string name="home_subtitle">موتور هوشمند تبدیل عکس مدارک به اسکن و فتوکپی تمیز</string>
+    <string name="btn_start_scan">اسکن مدرک جدید با دوربین</string>
+    <string name="btn_pick_gallery">انتخاب عکس مدرک از گالری</string>
+    <string name="recent_scans_title">مدارک اسکن شده اخیر</string>
+    <string name="empty_recent_scans">هنوز مدرکی اسکن نشده است. با زدن دکمه بالا اولین مدرک خود را اسکن کنید.</string>
+    <string name="feature_clean_photocopy">فتوکپی واضح و پرکنتراست</string>
+    <string name="feature_auto_crop">تنظیم خودکار گوشه‌ها و حذف پس‌زمینه</string>
+    <string name="feature_offline">۱۰۰٪ آفلاین بدون ارسال داده به اینترنت</string>
+    <string name="tip_title">نکته برای اسکن شفاف:</string>
+    <string name="tip_body">مدرک را روی سطح صاف قرار دهید. فلاش به طور پیش‌فرض خاموش است تا از بازتاب نور جلوگیری شود.</string>
+
+    <string name="capture_photo">اسکن مدرک</string>
     <string name="switch_camera">تغییر دوربین</string>
     <string name="flash_mode">حالت فلاش</string>
     <string name="gallery">گالری اسناد</string>
-    <string name="photo_saved_success">سند با موفقیت ذخیره شد</string>
+    <string name="photo_saved_success">مدرک با کیفیت بالا ذخیره شد</string>
     <string name="photo_save_failed">خطا در پردازش تصویر: %1$s</string>
     <string name="camera_permission_required">برای اسکن مدارک، دسترسی دوربین الزامی است.</string>
     <string name="grant_permission">تأیید دسترسی دوربین</string>
     <string name="cancel">انصراف</string>
-    <string name="saved_in_pictures">مسیر ذخیره‌سازی: تصاویر / PersianCamera</string>
+    <string name="saved_in_pictures">مسیر ذخیره‌سازی: پوشه Pictures / PersianCamera</string>
     <string name="align_document_hint">مدرک یا کارت شناسایی را درون کادر تنظیم کنید</string>
-    <string name="bw_result_title">نسخه فتوکپی مدرک</string>
-    <string name="bw_converted_badge">اسکن فتوکپی با وضوح بالا</string>
-    <string name="take_another_photo">اسکن مدرک جدید</string>
+
+    <string name="crop_screen_title">تنظیم گوشه‌ها و برش مدرک</string>
+    <string name="crop_screen_hint">گوشه‌های کادر را روی لبه‌های مدرک تنظیم کنید</string>
+    <string name="btn_auto_corners">تنظیم خودکار کادر</string>
+    <string name="btn_rotate_crop">چرخش ۹۰ درجه</string>
+    <string name="btn_apply_crop">تأیید و پردازش اسکن</string>
+
+    <string name="bw_result_title">پیش‌نمایش اسکن مدرک</string>
+    <string name="bw_converted_badge">پردازش هوشمند با کیفیت بالا</string>
+    <string name="take_another_photo">اسکن مدرک بعدی</string>
+    <string name="btn_back_home">صفحه اصلی</string>
+    <string name="btn_share">اشتراک‌گذاری مدرک</string>
+    <string name="btn_save_pdf">خروجی PDF</string>
+    <string name="pdf_saved_success">فایل PDF مدرک با موفقیت در پوشه اسناد ذخیره شد</string>
+
     <string name="filter_photocopy">فتوکپی واضح</string>
-    <string name="filter_grayscale">اسکن نرم</string>
-    <string name="filter_original">رنگ اصلی</string>
-    <string name="bw_photo_saved">مدرک اسکن و به نسخه فتوکپی تبدیل شد</string>
-    <string name="bw_image_desc">نسخه اسکن شده فتوکپی مدرک</string>
+    <string name="filter_magic_color">اسکن رنگی تمیز</string>
+    <string name="filter_grayscale">خاکستری نرم</string>
+    <string name="filter_original">عکس اصلی</string>
+    <string name="bw_photo_saved">مدرک با موفقیت اسکن و پردازش شد</string>
+    <string name="bw_image_desc">نسخه اسکن شده مدرک</string>
 </resources>
