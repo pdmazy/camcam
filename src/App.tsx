@@ -21,13 +21,13 @@ export default function App() {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base font-bold text-white tracking-tight">دوربین فارسی</h1>
+                <h1 className="text-base font-bold text-white tracking-tight">اسکنر و فتوکپی مدارک</h1>
                 <span className="text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full">
-                  اندروید نیتیو (Kotlin)
+                  کاملاً آفلاین و نیتیو (Kotlin)
                 </span>
               </div>
               <p className="text-[11px] text-neutral-400 mt-0.5">
-                سبک، کاملاً راست‌چین، همراه با ورک‌فلو خودکار بیلد APK در گیت‌هاب اکشنز
+                تبدیل خودکار عکس مدارک به نسخه فتوکپی سیاه و سفید با کنتراست بالا و بیلد در گیت‌هاب اکشنز
               </p>
             </div>
           </div>
@@ -44,7 +44,7 @@ export default function App() {
               }`}
             >
               <Smartphone className="w-3.5 h-3.5" />
-              <span>تست و شبیه‌ساز دوربین</span>
+              <span>تست و شبیه‌ساز اسکنر</span>
               {capturedCount > 0 && (
                 <span className="bg-emerald-500/20 text-emerald-300 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
                   {capturedCount}

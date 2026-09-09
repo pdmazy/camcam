@@ -1,19 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">دوربین فارسی</string>
-    <string name="capture_photo">ثبت عکس</string>
+    <string name="app_name">اسکنر و فتوکپی مدارک</string>
+    <string name="capture_photo">اسکن و فتوکپی مدرک</string>
     <string name="switch_camera">تغییر دوربین</string>
     <string name="flash_mode">حالت فلاش</string>
-    <string name="gallery">گالری</string>
-    <string name="photo_saved_success">عکس با موفقیت در گالری ذخیره شد</string>
-    <string name="photo_save_failed">خطا در ذخیره تصویر: %1$s</string>
-    <string name="camera_permission_required">برای استفاده از دوربین، دسترسی دوربین الزامی است.</string>
-    <string name="grant_permission">تأیید دسترسی</string>
+    <string name="gallery">گالری اسناد</string>
+    <string name="photo_saved_success">سند با موفقیت ذخیره شد</string>
+    <string name="photo_save_failed">خطا در پردازش تصویر: %1$s</string>
+    <string name="camera_permission_required">برای اسکن مدارک، دسترسی دوربین الزامی است.</string>
+    <string name="grant_permission">تأیید دسترسی دوربین</string>
     <string name="cancel">انصراف</string>
     <string name="saved_in_pictures">مسیر ذخیره‌سازی: تصاویر / PersianCamera</string>
-    <string name="bw_result_title">تصویر ثبت‌شده</string>
-    <string name="bw_converted_badge">تبدیل خودکار به سیاه و سفید</string>
-    <string name="take_another_photo">گرفتن عکس جدید</string>
-    <string name="bw_photo_saved">عکس با موفقیت ثبت و به سیاه و سفید تبدیل شد</string>
-    <string name="bw_image_desc">تصویر سیاه و سفید تبدیل شده</string>
+    <string name="align_document_hint">مدرک یا کارت شناسایی را درون کادر تنظیم کنید</string>
+    <string name="bw_result_title">نسخه فتوکپی مدرک</string>
+    <string name="bw_converted_badge">اسکن فتوکپی با وضوح بالا</string>
+    <string name="take_another_photo">اسکن مدرک جدید</string>
+    <string name="filter_photocopy">فتوکپی واضح</string>
+    <string name="filter_grayscale">اسکن نرم</string>
+    <string name="filter_original">رنگ اصلی</string>
+    <string name="bw_photo_saved">مدرک اسکن و به نسخه فتوکپی تبدیل شد</string>
+    <string name="bw_image_desc">نسخه اسکن شده فتوکپی مدرک</string>
 </resources>

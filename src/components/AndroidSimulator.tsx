@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, RotateCcw, Zap, ZapOff, Trash2, Download, X, Image as ImageIcon, CheckCircle2, Sparkles } from 'lucide-react';
+import { Camera, RotateCcw, Zap, ZapOff, Trash2, Download, X, Image as ImageIcon, CheckCircle2, Sparkles, FileText, FileCheck } from 'lucide-react';
 import { CapturedPhoto } from '../types';
 
 interface AndroidSimulatorProps {
@@ -16,9 +16,11 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
   const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<CapturedPhoto | null>(null);
   const [bwResult, setBwResult] = useState<CapturedPhoto | null>(null);
+  const [resultFilter, setResultFilter] = useState<'photocopy' | 'grayscale' | 'original'>('photocopy');
   const [showGallery, setShowGallery] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isShutterActive, setIsShutterActive] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
 
@@ -82,11 +84,14 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
   const handleCapture = () => {
     setIsShutterActive(true);
     setTimeout(() => setIsShutterActive(false), 150);
+    setIsProcessing(true);
 
     const canvas = canvasRef.current;
     const video = videoRef.current;
 
-    let dataUrl = '';
+    let originalUrl = '';
+    let grayscaleUrl = '';
+    let photocopyUrl = '';
 
     if (canvas && video && video.videoWidth > 0) {
       canvas.width = video.videoWidth;
@@ -94,72 +99,176 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
       const ctx = canvas.getContext('2d');
       if (ctx) {
         if (facingMode === 'user') {
-          // Flip horizontally for front camera selfie
+          // Flip horizontally for front camera
           ctx.translate(canvas.width, 0);
           ctx.scale(-1, 1);
         }
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        originalUrl = canvas.toDataURL('image/jpeg', 0.92);
 
-        // Convert image data to Black & White (Grayscale)
+        // Compute Grayscale
         const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const d = imgData.data;
+        const grayBuf = new Uint8ClampedArray(d.length);
         for (let i = 0; i < d.length; i += 4) {
-          const gray = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
-          d[i] = gray;
-          d[i + 1] = gray;
-          d[i + 2] = gray;
+          const g = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+          grayBuf[i] = g;
+          grayBuf[i + 1] = g;
+          grayBuf[i + 2] = g;
+          grayBuf[i + 3] = 255;
         }
-        ctx.putImageData(imgData, 0, 0);
+        const grayImgData = new ImageData(grayBuf, canvas.width, canvas.height);
+        ctx.putImageData(grayImgData, 0, 0);
+        grayscaleUrl = canvas.toDataURL('image/jpeg', 0.92);
 
-        dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        // Compute High-Contrast Photocopy (Paper whitening + Ink dark enhancement)
+        const photoBuf = new Uint8ClampedArray(d.length);
+        const contrast = 2.05;
+        const offset = -128 * (contrast - 1) + 38;
+        for (let i = 0; i < d.length; i += 4) {
+          const g = grayBuf[i];
+          const val = Math.max(0, Math.min(255, Math.round(contrast * (g - 128) + 128 + offset)));
+          photoBuf[i] = val;
+          photoBuf[i + 1] = val;
+          photoBuf[i + 2] = val;
+          photoBuf[i + 3] = 255;
+        }
+        const photoImgData = new ImageData(photoBuf, canvas.width, canvas.height);
+        ctx.putImageData(photoImgData, 0, 0);
+        photocopyUrl = canvas.toDataURL('image/jpeg', 0.92);
       }
     } else {
-      // Fallback simulated photo capture if hardware camera is not permitted
-      const dummyCanvas = document.createElement('canvas');
-      dummyCanvas.width = 640;
-      dummyCanvas.height = 480;
-      const ctx = dummyCanvas.getContext('2d')!;
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(0, 0, 640, 480);
-      ctx.fillStyle = '#10b981';
-      ctx.beginPath();
-      ctx.arc(320, 240, 100, 0, Math.PI * 2);
-      ctx.fill();
+      // Fallback: Generate realistic Iranian ID card / Document mockup
+      const docCanvas = document.createElement('canvas');
+      docCanvas.width = 640;
+      docCanvas.height = 420;
+      const ctx = docCanvas.getContext('2d')!;
+
+      // Background card gradient
+      const grad = ctx.createLinearGradient(0, 0, 640, 420);
+      grad.addColorStop(0, '#e2e8f0');
+      grad.addColorStop(0.5, '#cbd5e1');
+      grad.addColorStop(1, '#94a3b8');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 640, 420);
+
+      // Card outer border
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#059669';
+      ctx.strokeRect(10, 10, 620, 400);
+
+      // Header strip
+      ctx.fillStyle = '#065f46';
+      ctx.fillRect(10, 10, 620, 50);
+
       ctx.fillStyle = '#ffffff';
-      ctx.font = '24px Vazirmatn, sans-serif';
+      ctx.font = 'bold 18px Vazirmatn, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('عکس ثبت شده با دوربین فارسی', 320, 248);
+      ctx.fillText('جمهوری اسلامی ایران - کارت شناسایی ملی', 320, 42);
 
-      // Convert dummy image data to Grayscale
-      const imgData = ctx.getImageData(0, 0, 640, 480);
-      const d = imgData.data;
-      for (let i = 0; i < d.length; i += 4) {
-        const gray = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
-        d[i] = gray;
-        d[i + 1] = gray;
-        d[i + 2] = gray;
+      // Document Photo Box (Left in RTL or Right)
+      ctx.fillStyle = '#64748b';
+      ctx.fillRect(40, 80, 120, 160);
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(40, 80, 120, 160);
+
+      // Silhouette avatar inside photo box
+      ctx.fillStyle = '#cbd5e1';
+      ctx.beginPath();
+      ctx.arc(100, 130, 32, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(100, 220, 55, Math.PI, Math.PI * 2);
+      ctx.fill();
+
+      // Text information fields
+      ctx.fillStyle = '#0f172a';
+      ctx.textAlign = 'right';
+      ctx.font = 'bold 16px Vazirmatn, sans-serif';
+      ctx.fillText('نام و نام خانوادگی: علی محمدی', 590, 110);
+      ctx.fillText('شماره ملی: ۰۰۱۲۳۴۵۶۷۸', 590, 150);
+      ctx.fillText('تاریخ تولد: ۱۳۶۸/۰۴/۱۵', 590, 190);
+      ctx.fillText('شماره شناسنامه: ۴۲۸۹', 590, 230);
+      ctx.fillText('تاریخ اعتبار مدرک: ۱۴۰۸/۰۴/۱۵', 590, 270);
+
+      // Official Stamp Circle
+      ctx.strokeStyle = '#dc2626';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(280, 280, 45, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#dc2626';
+      ctx.font = 'bold 13px Vazirmatn, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('ثبت احوال کشور', 280, 275);
+      ctx.fillText('مهر رسمی', 280, 295);
+
+      // Barcode strip
+      ctx.fillStyle = '#0f172a';
+      for (let x = 40; x < 600; x += 6) {
+        const barW = (x % 12 === 0) ? 4 : 2;
+        ctx.fillRect(x, 345, barW, 45);
       }
-      ctx.putImageData(imgData, 0, 0);
 
-      dataUrl = dummyCanvas.toDataURL('image/jpeg', 0.85);
+      originalUrl = docCanvas.toDataURL('image/jpeg', 0.92);
+
+      // Compute Grayscale for dummy
+      const imgData = ctx.getImageData(0, 0, 640, 420);
+      const d = imgData.data;
+      const grayBuf = new Uint8ClampedArray(d.length);
+      for (let i = 0; i < d.length; i += 4) {
+        const g = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+        grayBuf[i] = g;
+        grayBuf[i + 1] = g;
+        grayBuf[i + 2] = g;
+        grayBuf[i + 3] = 255;
+      }
+      const grayImgData = new ImageData(grayBuf, 640, 420);
+      ctx.putImageData(grayImgData, 0, 0);
+      grayscaleUrl = docCanvas.toDataURL('image/jpeg', 0.92);
+
+      // Compute Photocopy for dummy
+      const photoBuf = new Uint8ClampedArray(d.length);
+      const contrast = 2.1;
+      const offset = -128 * (contrast - 1) + 40;
+      for (let i = 0; i < d.length; i += 4) {
+        const g = grayBuf[i];
+        const val = Math.max(0, Math.min(255, Math.round(contrast * (g - 128) + 128 + offset)));
+        photoBuf[i] = val;
+        photoBuf[i + 1] = val;
+        photoBuf[i + 2] = val;
+        photoBuf[i + 3] = 255;
+      }
+      const photoImgData = new ImageData(photoBuf, 640, 420);
+      ctx.putImageData(photoImgData, 0, 0);
+      photocopyUrl = docCanvas.toDataURL('image/jpeg', 0.92);
     }
 
-    const newPhoto: CapturedPhoto = {
-      id: Date.now().toString(),
-      dataUrl,
-      timestamp: new Intl.DateTimeFormat('fa-IR', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      }).format(new Date()),
-      sizeKb: Math.round(dataUrl.length * 0.75 / 1024),
-    };
+    setTimeout(() => {
+      setIsProcessing(false);
 
-    const updated = [newPhoto, ...photos];
-    setPhotos(updated);
-    setBwResult(newPhoto);
-    onPhotoCountChange?.(updated.length);
-    showToast('عکس با موفقیت ثبت و به سیاه و سفید تبدیل شد');
+      const newPhoto: CapturedPhoto = {
+        id: Date.now().toString(),
+        dataUrl: photocopyUrl,
+        photocopyUrl,
+        grayscaleUrl,
+        originalUrl,
+        timestamp: new Intl.DateTimeFormat('fa-IR', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        }).format(new Date()),
+        sizeKb: Math.round(photocopyUrl.length * 0.75 / 1024),
+      };
+
+      const updated = [newPhoto, ...photos];
+      setPhotos(updated);
+      setBwResult(newPhoto);
+      setResultFilter('photocopy');
+      onPhotoCountChange?.(updated.length);
+      showToast('مدرک اسکن و به نسخه فتوکپی تبدیل شد');
+    }, 200);
   };
 
   const handleSwitchCamera = () => {
@@ -229,8 +338,8 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
           {/* Top Camera Header Bar (RTL) */}
           <div className="h-14 w-full flex items-center justify-between px-4 z-20 bg-gradient-to-b from-black/70 to-transparent">
             <div className="flex items-center gap-2 text-white">
-              <Camera className="w-5 h-5 text-emerald-400" />
-              <span className="font-bold text-sm tracking-tight text-white">دوربین فارسی</span>
+              <FileText className="w-5 h-5 text-emerald-400" />
+              <span className="font-bold text-sm tracking-tight text-white">اسکنر و فتوکپی مدارک</span>
             </div>
             
             <button
@@ -258,15 +367,36 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
               className={`w-full h-full object-cover ${facingMode === 'user' ? '-scale-x-100' : ''}`}
             />
 
+            {/* Document Guide Frame Overlay (کادر راهنمای تراز مدرک) */}
+            <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center p-6 z-10">
+              <div className="w-full max-w-[260px] aspect-[1/1.38] border-2 border-dashed border-emerald-400/80 rounded-2xl relative flex flex-col justify-between p-3">
+                {/* 4 Corner Markers */}
+                <div className="absolute -top-1.5 -left-1.5 w-4 h-4 border-t-2 border-l-2 border-emerald-400" />
+                <div className="absolute -top-1.5 -right-1.5 w-4 h-4 border-t-2 border-r-2 border-emerald-400" />
+                <div className="absolute -bottom-1.5 -left-1.5 w-4 h-4 border-b-2 border-l-2 border-emerald-400" />
+                <div className="absolute -bottom-1.5 -right-1.5 w-4 h-4 border-b-2 border-r-2 border-emerald-400" />
+
+                {/* Top alignment badge */}
+                <div className="self-center bg-black/75 backdrop-blur-sm text-[10px] text-emerald-300 font-medium px-2.5 py-0.5 rounded-full border border-emerald-500/30">
+                  مدرک یا کارت را داخل کادر تنظیم کنید
+                </div>
+
+                {/* Center scan hint */}
+                <div className="self-center text-[10px] text-neutral-300/80 bg-black/50 px-2 py-0.5 rounded-md backdrop-blur-sm">
+                  تبدیل خودکار به نسخه فتوکپی
+                </div>
+              </div>
+            </div>
+
             {/* If camera permission is not granted or blocked, show informative Persian banner with fallback capture */}
             {cameraError && (
-              <div className="absolute inset-0 bg-neutral-900/90 flex flex-col items-center justify-center p-6 text-center z-10">
+              <div className="absolute inset-0 bg-neutral-900/90 flex flex-col items-center justify-center p-6 text-center z-15">
                 <Camera className="w-12 h-12 text-neutral-500 mb-3" />
                 <p className="text-xs text-neutral-300 leading-relaxed max-w-xs mb-3">
-                  دوربین وب غیرفعال است؛ نگران نباشید، با زدن دکمه شاتر می‌توانید عکاسی شبیه‌سازی‌شده را تست کنید و عکس ذخیره کنید.
+                  دوربین وب غیرفعال است؛ با زدن دکمه شاتر، یک نمونه کارت شناسایی رسمی به صورت فتوکپی شبیه‌سازی و اسکن می‌شود.
                 </p>
                 <span className="text-[10px] text-emerald-400 bg-emerald-950/80 border border-emerald-800/60 px-2 py-1 rounded-md">
-                  در فایل APK روی گوشی، از سخت‌افزار واقعی دوربین استفاده می‌شود
+                  در فایل APK روی گوشی، از سخت‌افزار دوربین گوشی استفاده می‌شود
                 </span>
               </div>
             )}
@@ -274,6 +404,14 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
             {/* Shutter White Flash Overlay */}
             {isShutterActive && (
               <div className="absolute inset-0 bg-white z-30 animate-ping opacity-90" />
+            )}
+
+            {/* Processing Spinner Overlay */}
+            {isProcessing && (
+              <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex flex-col items-center justify-center z-30 gap-2">
+                <div className="w-8 h-8 border-3 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs text-white font-medium">در حال تبدیل به فتوکپی...</span>
+              </div>
             )}
 
             {/* Persian Toast Notification in Android screen */}
@@ -292,11 +430,11 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
               id="gallery-preview-btn"
               onClick={() => setShowGallery(true)}
               className="relative w-12 h-12 rounded-xl bg-neutral-800 border-2 border-neutral-600/80 overflow-hidden flex items-center justify-center hover:border-emerald-400 transition-colors"
-              title="مشاهده عکس‌های ذخیره شده"
+              title="مشاهده مدارک اسکن شده"
             >
               {photos.length > 0 ? (
                 <>
-                  <img src={photos[0].dataUrl} alt="آخرین عکس" className="w-full h-full object-cover" />
+                  <img src={photos[0].photocopyUrl || photos[0].dataUrl} alt="آخرین مدرک" className="w-full h-full object-cover" />
                   <span className="absolute bottom-0.5 right-0.5 bg-black/80 text-emerald-300 text-[9px] font-bold px-1 rounded-sm">
                     {photos.length}
                   </span>
@@ -311,9 +449,11 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
               id="shutter-capture-btn"
               onClick={handleCapture}
               className="w-18 h-18 rounded-full border-4 border-white p-1.5 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
-              title="ثبت عکس"
+              title="اسکن و فتوکپی مدرک"
             >
-              <div className="w-full h-full rounded-full bg-white active:bg-neutral-300 transition-colors shadow-inner" />
+              <div className="w-full h-full rounded-full bg-white active:bg-neutral-300 transition-colors shadow-inner flex items-center justify-center">
+                <div className="w-8 h-8 rounded-full border-2 border-neutral-400/40" />
+              </div>
             </button>
 
             {/* Switch Camera Button (Front/Back) */}
@@ -338,8 +478,8 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
               {/* Header */}
               <div className="h-14 px-4 border-b border-neutral-800 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <ImageIcon className="w-5 h-5 text-emerald-400" />
-                  <span className="font-bold text-sm text-white">عکس‌های ذخیره شده ({photos.length})</span>
+                  <FileText className="w-5 h-5 text-emerald-400" />
+                  <span className="font-bold text-sm text-white">مدارک اسکن شده ({photos.length})</span>
                 </div>
                 <button
                   onClick={() => setShowGallery(false)}
@@ -353,9 +493,9 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
               <div className="flex-1 overflow-y-auto p-3">
                 {photos.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-neutral-400 gap-2 text-center">
-                    <ImageIcon className="w-10 h-10 stroke-1 text-neutral-600" />
-                    <p className="text-xs">هنوز عکسی ثبت نشده است.</p>
-                    <span className="text-[11px] text-neutral-500">با زدن دکمه سفید شاتر، عکس جدید بگیرید.</span>
+                    <FileText className="w-10 h-10 stroke-1 text-neutral-600" />
+                    <p className="text-xs">هنوز مدرکی اسکن نشده است.</p>
+                    <span className="text-[11px] text-neutral-500">با زدن دکمه شاتر، مدارک را فتوکپی و اسکن کنید.</span>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
@@ -365,10 +505,10 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
                         className="group relative rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 aspect-square cursor-pointer"
                         onClick={() => setSelectedPhoto(photo)}
                       >
-                        <img src={photo.dataUrl} alt="عکس" className="w-full h-full object-cover" />
+                        <img src={photo.photocopyUrl || photo.dataUrl} alt="مدرک" className="w-full h-full object-cover" />
                         <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-1.5 flex items-center justify-between text-[10px] text-neutral-300">
                           <span>{photo.timestamp}</span>
-                          <span>{photo.sizeKb} کیلوبایت</span>
+                          <span>فتوکپی</span>
                         </div>
                       </div>
                     ))}
@@ -385,14 +525,14 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
                       <button
                         onClick={() => handleDownloadPhoto(selectedPhoto)}
                         className="p-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-emerald-400"
-                        title="دانلود عکس"
+                        title="دانلود مدرک"
                       >
                         <Download className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleDeletePhoto(selectedPhoto.id)}
                         className="p-2 rounded-lg bg-neutral-800 hover:bg-red-950 text-red-400"
-                        title="حذف عکس"
+                        title="حذف مدرک"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -405,33 +545,73 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
                     </div>
                   </div>
                   <div className="flex-1 flex items-center justify-center p-2 bg-neutral-950">
-                    <img src={selectedPhoto.dataUrl} alt="بزرگنمایی" className="max-w-full max-h-full object-contain rounded-lg" />
+                    <img src={selectedPhoto.photocopyUrl || selectedPhoto.dataUrl} alt="بزرگنمایی" className="max-w-full max-h-full object-contain rounded-lg" />
                   </div>
                 </div>
               )}
             </div>
           )}
 
-          {/* Automatic Black & White Result Screen Overlay (نمایش خودکار تصویر سیاه و سفید) */}
+          {/* Automatic Photocopy Result Screen Overlay (نمایش خودکار نسخه فتوکپی مدرک) */}
           {bwResult && (
             <div id="bw-result-overlay" className="absolute inset-0 z-40 bg-neutral-950 flex flex-col animate-fade-in" dir="rtl">
               {/* Header */}
               <div className="h-14 px-4 bg-neutral-900 border-b border-neutral-800 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-emerald-400 shrink-0" />
-                  <span className="font-bold text-sm text-white">تصویر ثبت‌شده</span>
+                  <FileCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+                  <span className="font-bold text-sm text-white">نسخه فتوکپی مدرک</span>
                 </div>
                 <span className="text-[11px] text-emerald-400 bg-emerald-950/80 border border-emerald-800/60 px-2.5 py-1 rounded-full font-medium">
-                  تبدیل خودکار به سیاه و سفید
+                  وضوح بالا و بهینه‌شده
                 </span>
               </div>
 
-              {/* Black & White Photo Display */}
+              {/* Filter Selection Chips Bar */}
+              <div className="py-2.5 px-4 bg-neutral-900/60 border-b border-neutral-800/80 flex items-center justify-center gap-2">
+                <button
+                  onClick={() => setResultFilter('photocopy')}
+                  className={`px-3 py-1 text-xs rounded-full font-medium transition-all ${
+                    resultFilter === 'photocopy'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'bg-neutral-800 text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  فتوکپی واضح
+                </button>
+                <button
+                  onClick={() => setResultFilter('grayscale')}
+                  className={`px-3 py-1 text-xs rounded-full font-medium transition-all ${
+                    resultFilter === 'grayscale'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'bg-neutral-800 text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  اسکن نرم
+                </button>
+                <button
+                  onClick={() => setResultFilter('original')}
+                  className={`px-3 py-1 text-xs rounded-full font-medium transition-all ${
+                    resultFilter === 'original'
+                      ? 'bg-emerald-600 text-white shadow-sm'
+                      : 'bg-neutral-800 text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  رنگ اصلی
+                </button>
+              </div>
+
+              {/* Document Photo Display */}
               <div className="flex-1 flex items-center justify-center p-4 bg-neutral-950 overflow-hidden relative">
                 <img
-                  src={bwResult.dataUrl}
-                  alt="تصویر سیاه و سفید"
-                  className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl border border-neutral-800"
+                  src={
+                    resultFilter === 'photocopy'
+                      ? (bwResult.photocopyUrl || bwResult.dataUrl)
+                      : resultFilter === 'grayscale'
+                      ? (bwResult.grayscaleUrl || bwResult.dataUrl)
+                      : (bwResult.originalUrl || bwResult.dataUrl)
+                  }
+                  alt="تصویر مدرک"
+                  className="max-w-full max-h-full object-contain rounded-xl shadow-2xl border border-neutral-700 bg-white"
                 />
               </div>
 
@@ -443,12 +623,20 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
                   className="w-full h-12 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/30 transition-all cursor-pointer"
                 >
                   <Camera className="w-5 h-5" />
-                  <span>گرفتن عکس جدید</span>
+                  <span>اسکن مدرک جدید</span>
                 </button>
                 <div className="flex items-center justify-between px-1 text-[11px] text-neutral-400">
-                  <span>ساعت: {bwResult.timestamp}</span>
+                  <span>ساعت اسکن: {bwResult.timestamp}</span>
                   <button
-                    onClick={() => handleDownloadPhoto(bwResult)}
+                    onClick={() => {
+                      const activeImg =
+                        resultFilter === 'photocopy'
+                          ? (bwResult.photocopyUrl || bwResult.dataUrl)
+                          : resultFilter === 'grayscale'
+                          ? (bwResult.grayscaleUrl || bwResult.dataUrl)
+                          : (bwResult.originalUrl || bwResult.dataUrl);
+                      handleDownloadPhoto({ ...bwResult, dataUrl: activeImg });
+                    }}
                     className="text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />

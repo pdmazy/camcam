@@ -216,6 +216,28 @@ import android.media.ExifInterface
 import android.net.Uri
 
 object ImageProcessor {
+    fun toPhotocopy(src: Bitmap): Bitmap {
+        val dest = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(dest)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+        val grayMatrix = ColorMatrix().apply { setSaturation(0f) }
+        val contrast = 1.95f
+        val brightness = -128f * (contrast - 1f) + 38f
+        val contrastMatrix = ColorMatrix(
+            floatArrayOf(
+                contrast, 0f, 0f, 0f, brightness,
+                0f, contrast, 0f, 0f, brightness,
+                0f, 0f, contrast, 0f, brightness,
+                0f, 0f, 0f, 1f, 0f
+            )
+        )
+        grayMatrix.postConcat(contrastMatrix)
+        paint.colorFilter = ColorMatrixColorFilter(grayMatrix)
+        canvas.drawBitmap(src, 0f, 0f, paint)
+        return dest
+    }
+
     fun toGrayscale(src: Bitmap): Bitmap {
         val dest = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(dest)

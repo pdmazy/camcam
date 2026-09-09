@@ -1,6 +1,7 @@
 package com.example.persiancamera
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
@@ -10,6 +11,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.persiancamera.camera.CameraManager
@@ -25,6 +27,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var cameraManager: CameraManager
     private var lastCapturedUri: Uri? = null
+
+    // Bitmaps for active document filters
+    private var originalBitmap: Bitmap? = null
+    private var photocopyBitmap: Bitmap? = null
+    private var grayscaleBitmap: Bitmap? = null
 
     // Permission launcher for Camera & Storage
     private val requestPermissionLauncher = registerForActivityResult(
@@ -75,27 +82,35 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
-        // Shutter Button (ثبت عکس)
+        // Shutter Button (اسکن و فتوکپی مدرک)
         binding.btnCapture.setOnClickListener {
             triggerShutterEffect()
             binding.btnCapture.isEnabled = false
+            binding.progressConverting.visibility = View.VISIBLE
 
             cameraManager.takePhoto(
                 onSuccess = { uri ->
                     lastCapturedUri = uri
 
-                    // Automatic conversion to Black & White (Grayscale)
+                    // Automatic Conversion to High-Contrast Photocopy (تبدیل خودکار به فتوکپی)
                     lifecycleScope.launch(Dispatchers.IO) {
                         val bitmap = ImageProcessor.decodeAndRotateBitmap(contentResolver, uri)
                         if (bitmap != null) {
-                            val bwBitmap = ImageProcessor.toGrayscale(bitmap)
-                            // Overwrite saved file with black and white version
-                            ImageProcessor.saveBitmapToUri(contentResolver, uri, bwBitmap)
+                            originalBitmap = bitmap
+                            val photoBw = ImageProcessor.toPhotocopy(bitmap)
+                            val grayBw = ImageProcessor.toGrayscale(bitmap)
+                            photocopyBitmap = photoBw
+                            grayscaleBitmap = grayBw
+
+                            // Save the authentic photocopy version to device
+                            ImageProcessor.saveBitmapToUri(contentResolver, uri, photoBw)
 
                             withContext(Dispatchers.Main) {
                                 binding.btnCapture.isEnabled = true
-                                binding.imgResultBW.setImageBitmap(bwBitmap)
-                                binding.imgLastCapture.setImageBitmap(bwBitmap)
+                                binding.progressConverting.visibility = View.GONE
+                                binding.imgResultBW.setImageBitmap(photoBw)
+                                binding.imgLastCapture.setImageBitmap(photoBw)
+                                updateFilterButtonsUI("photocopy")
                                 binding.resultOverlay.visibility = View.VISIBLE
 
                                 Toast.makeText(
@@ -107,6 +122,7 @@ class MainActivity : AppCompatActivity() {
                         } else {
                             withContext(Dispatchers.Main) {
                                 binding.btnCapture.isEnabled = true
+                                binding.progressConverting.visibility = View.GONE
                                 binding.imgLastCapture.setImageURI(uri)
                                 Toast.makeText(
                                     this@MainActivity,
@@ -119,13 +135,51 @@ class MainActivity : AppCompatActivity() {
                 },
                 onError = { exc ->
                     binding.btnCapture.isEnabled = true
+                    binding.progressConverting.visibility = View.GONE
                     val errorMsg = getString(R.string.photo_save_failed, exc.message)
                     Toast.makeText(this@MainActivity, errorMsg, Toast.LENGTH_SHORT).show()
                 }
             )
         }
 
-        // New Photo Button on Result Screen (گرفتن عکس جدید)
+        // Filter Mode Switchers (انتخاب بین فتوکپی، اسکن نرم و رنگ اصلی)
+        binding.btnModePhotocopy.setOnClickListener {
+            photocopyBitmap?.let { bmp ->
+                binding.imgResultBW.setImageBitmap(bmp)
+                updateFilterButtonsUI("photocopy")
+                lastCapturedUri?.let { uri ->
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        ImageProcessor.saveBitmapToUri(contentResolver, uri, bmp)
+                    }
+                }
+            }
+        }
+
+        binding.btnModeGrayscale.setOnClickListener {
+            grayscaleBitmap?.let { bmp ->
+                binding.imgResultBW.setImageBitmap(bmp)
+                updateFilterButtonsUI("grayscale")
+                lastCapturedUri?.let { uri ->
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        ImageProcessor.saveBitmapToUri(contentResolver, uri, bmp)
+                    }
+                }
+            }
+        }
+
+        binding.btnModeOriginal.setOnClickListener {
+            originalBitmap?.let { bmp ->
+                binding.imgResultBW.setImageBitmap(bmp)
+                updateFilterButtonsUI("original")
+                lastCapturedUri?.let { uri ->
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        ImageProcessor.saveBitmapToUri(contentResolver, uri, bmp)
+                    }
+                }
+            }
+        }
+
+        // New Photo Button on Result Screen (اسکن مدرک جدید)
         binding.btnNewPhoto.setOnClickListener {
             binding.resultOverlay.visibility = View.GONE
         }
@@ -141,20 +195,36 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "فلاش: $status", Toast.LENGTH_SHORT).show()
         }
 
-        // Thumbnail Click - Opens the captured photo in Gallery
+        // Thumbnail Click - Opens the captured photo or Result Overlay
         binding.imgLastCapture.setOnClickListener {
-            lastCapturedUri?.let { uri ->
-                val intent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, "image/*")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                try {
-                    startActivity(intent)
-                } catch (e: Exception) {
-                    Toast.makeText(this, getString(R.string.saved_in_pictures), Toast.LENGTH_SHORT).show()
+            if (photocopyBitmap != null || originalBitmap != null) {
+                binding.resultOverlay.visibility = View.VISIBLE
+            } else {
+                lastCapturedUri?.let { uri ->
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, "image/*")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    try {
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        Toast.makeText(this, getString(R.string.saved_in_pictures), Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         }
+    }
+
+    private fun updateFilterButtonsUI(activeMode: String) {
+        binding.btnModePhotocopy.setBackgroundResource(
+            if (activeMode == "photocopy") R.drawable.chip_active_bg else R.drawable.chip_inactive_bg
+        )
+        binding.btnModeGrayscale.setBackgroundResource(
+            if (activeMode == "grayscale") R.drawable.chip_active_bg else R.drawable.chip_inactive_bg
+        )
+        binding.btnModeOriginal.setBackgroundResource(
+            if (activeMode == "original") R.drawable.chip_active_bg else R.drawable.chip_inactive_bg
+        )
     }
 
     private fun startCamera() {

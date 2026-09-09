@@ -1,6 +1,9 @@
 export interface CapturedPhoto {
   id: string;
   dataUrl: string;
+  photocopyUrl?: string;
+  grayscaleUrl?: string;
+  originalUrl?: string;
   timestamp: string;
   sizeKb: number;
 }

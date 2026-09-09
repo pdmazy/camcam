@@ -1,6 +1,6 @@
 {
   "name": "Persian Camera",
-  "description": "اپلیکیشن اندروید سبک و راست‌چین برای ثبت و ذخیره عکس با دوربین و بیلد خودکار APK با گیت‌هاب اکشنز",
+  "description": "اپلیکیشن اندروید اسکن اسناد و مدارک شناسایی و تبدیل خودکار به نسخه فتوکپی با کیفیت و کاملاً آفلاین",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

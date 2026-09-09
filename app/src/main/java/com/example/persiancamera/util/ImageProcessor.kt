@@ -14,8 +14,38 @@ import android.net.Uri
 object ImageProcessor {
 
     /**
-     * Converts any input Bitmap to high quality Black and White (Grayscale)
-     * using hardware-accelerated ColorMatrix desaturation.
+     * Converts any input Bitmap into a clean, high-contrast Photocopy / Scanned Document.
+     * Removes grey shadow backgrounds, enhances ink contrast, and produces authentic
+     * photocopy appearance 100% offline using hardware-accelerated ColorMatrix.
+     */
+    fun toPhotocopy(src: Bitmap): Bitmap {
+        val dest = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(dest)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+
+        // Step 1: Desaturate (Grayscale)
+        val grayMatrix = ColorMatrix().apply { setSaturation(0f) }
+
+        // Step 2: High Contrast + Paper Whitening Offset
+        val contrast = 1.95f
+        val brightnessOffset = -128f * (contrast - 1f) + 38f
+        val photocopyMatrix = ColorMatrix(floatArrayOf(
+            contrast, 0f, 0f, 0f, brightnessOffset,
+            0f, contrast, 0f, 0f, brightnessOffset,
+            0f, 0f, contrast, 0f, brightnessOffset,
+            0f, 0f, 0f, 1f, 0f
+        ))
+
+        // Combine: Grayscale then Photocopy contrast curve
+        grayMatrix.postConcat(photocopyMatrix)
+
+        paint.colorFilter = ColorMatrixColorFilter(grayMatrix)
+        canvas.drawBitmap(src, 0f, 0f, paint)
+        return dest
+    }
+
+    /**
+     * Converts any input Bitmap to standard balanced Grayscale.
      */
     fun toGrayscale(src: Bitmap): Bitmap {
         val dest = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
