@@ -14,6 +14,7 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.persiancamera.camera.CameraManager
@@ -43,7 +44,6 @@ class MainActivity : AppCompatActivity() {
     private var photocopyBitmap: Bitmap? = null
     private var magicColorBitmap: Bitmap? = null
     private var grayscaleBitmap: Bitmap? = null
-    private var secondaryDocBitmap: Bitmap? = null
     private var currentSheetBitmap: Bitmap? = null
 
     private var activeFilter = "photocopy"
@@ -61,7 +61,6 @@ class MainActivity : AppCompatActivity() {
 
     // Track if current crop came from gallery or camera
     private var isSourceFromGallery = false
-    private var isCapturingBackSide = false
 
     // Permission launcher for Camera
     private val requestPermissionLauncher = registerForActivityResult(
@@ -85,15 +84,6 @@ class MainActivity : AppCompatActivity() {
     ) { uri: Uri? ->
         if (uri != null) {
             loadBitmapForCropping(uri, fromGallery = true)
-        }
-    }
-
-    // Gallery picker for secondary photo (2-in-1 back of document)
-    private val secondaryGalleryLauncher = registerForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            loadSecondaryBitmap(uri)
         }
     }
 
@@ -142,7 +132,6 @@ class MainActivity : AppCompatActivity() {
     private fun setupListeners() {
         // ================= HOME DASHBOARD LISTENERS =================
         binding.btnHomeStartScan.setOnClickListener {
-            isCapturingBackSide = false
             if (PermissionUtils.hasPermissions(this)) {
                 openCameraScreen()
             } else {
@@ -151,7 +140,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnHomePickGallery.setOnClickListener {
-            isCapturingBackSide = false
             galleryLauncher.launch("image/*")
         }
 
@@ -233,7 +221,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnNewPhoto.setOnClickListener {
-            isCapturingBackSide = false
             openCameraScreen()
         }
 
@@ -369,10 +356,10 @@ class MainActivity : AppCompatActivity() {
         val isA5 = pageSize == PageSize.A5
 
         binding.btnPaperA4.setBackgroundResource(if (isA4) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
-        binding.btnPaperA4.setTextColor(resources.getColor(if (isA4) R.color.emerald_600 else R.color.on_surface_variant))
+        binding.btnPaperA4.setTextColor(ContextCompat.getColor(this, if (isA4) R.color.emerald_600 else R.color.on_surface_variant))
 
         binding.btnPaperA5.setBackgroundResource(if (isA5) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
-        binding.btnPaperA5.setTextColor(resources.getColor(if (isA5) R.color.emerald_600 else R.color.on_surface_variant))
+        binding.btnPaperA5.setTextColor(ContextCompat.getColor(this, if (isA5) R.color.emerald_600 else R.color.on_surface_variant))
 
         // Badge update
         val orientationText = if (printSettings.orientation == Orientation.PORTRAIT) "عمودی" else "افقی"
@@ -398,17 +385,17 @@ class MainActivity : AppCompatActivity() {
             val isA5 = printSettings.pageSize == PageSize.A5
 
             dlgBtnA4.setBackgroundResource(if (isA4) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
-            dlgBtnA4.setTextColor(resources.getColor(if (isA4) R.color.emerald_600 else R.color.on_surface_variant))
+            dlgBtnA4.setTextColor(ContextCompat.getColor(this, if (isA4) R.color.emerald_600 else R.color.on_surface_variant))
 
             dlgBtnA5.setBackgroundResource(if (isA5) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
-            dlgBtnA5.setTextColor(resources.getColor(if (isA5) R.color.emerald_600 else R.color.on_surface_variant))
+            dlgBtnA5.setTextColor(ContextCompat.getColor(this, if (isA5) R.color.emerald_600 else R.color.on_surface_variant))
 
             val isPort = printSettings.orientation == Orientation.PORTRAIT
             dlgBtnPortrait.setBackgroundResource(if (isPort) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
-            dlgBtnPortrait.setTextColor(resources.getColor(if (isPort) R.color.emerald_600 else R.color.on_surface_variant))
+            dlgBtnPortrait.setTextColor(ContextCompat.getColor(this, if (isPort) R.color.emerald_600 else R.color.on_surface_variant))
 
             dlgBtnLandscape.setBackgroundResource(if (!isPort) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
-            dlgBtnLandscape.setTextColor(resources.getColor(if (!isPort) R.color.emerald_600 else R.color.on_surface_variant))
+            dlgBtnLandscape.setTextColor(ContextCompat.getColor(this, if (!isPort) R.color.emerald_600 else R.color.on_surface_variant))
         }
 
         refreshDialogButtons()
@@ -451,7 +438,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.Default) {
             val sheet = printLayoutManager.renderDocumentSheet(
                 frontDoc = currentDoc,
-                backDoc = secondaryDocBitmap,
+                backDoc = null,
                 settings = printSettings,
                 dpi = 150
             )

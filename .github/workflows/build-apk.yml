@@ -22,35 +22,36 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: gradle
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Grant Execute Permission for Gradlew
+      - name: Accept Android SDK Licenses
         run: |
-          if [ -f gradlew ]; then
-            chmod +x gradlew
-          fi
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses 2>/dev/null || true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Build Debug and Release APK
+      - name: Ensure Gradle Wrapper & Permissions
         run: |
-          if [ -f gradlew ]; then
-            ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace
-          else
-            gradle assembleDebug assembleRelease --no-daemon --stacktrace
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "Generating missing gradle-wrapper.jar..."
+            gradle wrapper --gradle-version 8.9
           fi
+          chmod +x gradlew
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: PersianCamera-Debug-APK
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
           retention-days: 30
 
       - name: Upload Release APK
@@ -58,4 +59,5 @@ jobs:
         with:
           name: PersianCamera-Release-APK
           path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: warn
           retention-days: 30
