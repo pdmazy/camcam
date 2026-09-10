@@ -54,13 +54,24 @@ class PrintLayoutManager(private val context: Context) {
     ): Bitmap {
         val mmToPixel = dpi / 25.4f
         
-        // محاسبه ابعاد برگه بر اساس سایز و جهت
-        var sheetWidthMm = settings.pageSize.widthMm
-        var sheetHeightMm = settings.pageSize.heightMm
+        // محاسبه ابعاد برگه بر اساس سایز و جهت طبیعی مدرک
+        val isDocLandscape = frontDoc.width > frontDoc.height
+        val effectiveOrientation = if (settings.layoutMode == LayoutMode.TWO_IN_ONE_A4) {
+            settings.orientation
+        } else {
+            if (isDocLandscape) Orientation.LANDSCAPE else Orientation.PORTRAIT
+        }
 
-        if (settings.orientation == Orientation.LANDSCAPE) {
-            sheetWidthMm = settings.pageSize.heightMm
-            sheetHeightMm = settings.pageSize.widthMm
+        val sheetWidthMm = if (effectiveOrientation == Orientation.LANDSCAPE) {
+            maxOf(settings.pageSize.widthMm, settings.pageSize.heightMm)
+        } else {
+            minOf(settings.pageSize.widthMm, settings.pageSize.heightMm)
+        }
+
+        val sheetHeightMm = if (effectiveOrientation == Orientation.LANDSCAPE) {
+            minOf(settings.pageSize.widthMm, settings.pageSize.heightMm)
+        } else {
+            maxOf(settings.pageSize.widthMm, settings.pageSize.heightMm)
         }
 
         val sheetWidth = (sheetWidthMm * mmToPixel).toInt().coerceAtLeast(100)
@@ -80,16 +91,7 @@ class PrintLayoutManager(private val context: Context) {
                 val availW = sheetWidth - 2 * marginPx
                 val availH = sheetHeight - 2 * marginPx
 
-                var drawDoc = frontDoc
-                // چرخش هوشمند در صورت افقی بودن سند و عمودی بودن برگه (یا برعکس)
-                if (settings.autoRotateLandscape) {
-                    val isDocLandscape = frontDoc.width > frontDoc.height
-                    val isSheetLandscape = sheetWidth > sheetHeight
-                    if (isDocLandscape != isSheetLandscape) {
-                        val matrix = android.graphics.Matrix().apply { postRotate(90f) }
-                        drawDoc = Bitmap.createBitmap(frontDoc, 0, 0, frontDoc.width, frontDoc.height, matrix, true)
-                    }
-                }
+                val drawDoc = frontDoc
 
                 val scale = minOf(availW / drawDoc.width.toFloat(), availH / drawDoc.height.toFloat())
                 val destW = drawDoc.width * scale

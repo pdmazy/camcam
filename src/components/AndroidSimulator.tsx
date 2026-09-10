@@ -30,6 +30,7 @@ import {
 import { CapturedPhoto, PrintSettings, PageSize, LayoutMode } from '../types';
 import { PrintSettingsModal } from './PrintSettingsModal';
 import { renderDocumentToPaperCanvas, exportToStandardPdf, PAPER_DIMENSIONS } from '../utils/printLayout';
+import { detectDocumentCorners } from '../utils/edgeDetection';
 import appIcon from '../assets/images/app_scanner_icon_1788983654452.jpg';
 
 interface AndroidSimulatorProps {
@@ -294,7 +295,7 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
     return canvas.toDataURL('image/jpeg', 0.95);
   };
 
-  // Launch Crop Screen with a loaded image
+  // Launch Crop Screen with a loaded image and automatic edge detection
   const prepareImageForCrop = (imgUrl: string) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -303,15 +304,22 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
       setRawImageSrc(imgUrl);
       setRotation(0);
 
-      // Intelligent default corner points with 7% margin inset
-      const insetX = img.width * 0.08;
-      const insetY = img.height * 0.08;
-      setCorners([
-        { x: insetX, y: insetY },
-        { x: img.width - insetX, y: insetY },
-        { x: img.width - insetX, y: img.height - insetY },
-        { x: insetX, y: img.height - insetY },
-      ]);
+      // Automatic Document Edge Detection via Sobel & Convex Analysis
+      try {
+        const detectedCorners = detectDocumentCorners(img);
+        setCorners(detectedCorners);
+        showToast('✨ لبه‌های مدرک به‌طور هوشمند شناسایی شد');
+      } catch (e) {
+        // Fallback inset
+        const insetX = img.width * 0.08;
+        const insetY = img.height * 0.08;
+        setCorners([
+          { x: insetX, y: insetY },
+          { x: img.width - insetX, y: insetY },
+          { x: img.width - insetX, y: img.height - insetY },
+          { x: insetX, y: img.height - insetY },
+        ]);
+      }
 
       setScreen('crop');
     };
@@ -359,17 +367,28 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
     }
   };
 
-  // Reset corners to document bounds
+  // Re-run automatic edge detection
   const resetCorners = () => {
-    const insetX = rawDimensions.width * 0.06;
-    const insetY = rawDimensions.height * 0.06;
+    if (!rawImageSrc) return;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const detectedCorners = detectDocumentCorners(img);
+      setCorners(detectedCorners);
+      showToast('✨ لبه‌های مدرک مجدداً شناسایی و تنظیم شد');
+    };
+    img.src = rawImageSrc;
+  };
+
+  // Select entire image frame without cropping
+  const setFullFrameCorners = () => {
     setCorners([
-      { x: insetX, y: insetY },
-      { x: rawDimensions.width - insetX, y: insetY },
-      { x: rawDimensions.width - insetX, y: rawDimensions.height - insetY },
-      { x: insetX, y: rawDimensions.height - insetY },
+      { x: 0, y: 0 },
+      { x: rawDimensions.width, y: 0 },
+      { x: rawDimensions.width, y: rawDimensions.height },
+      { x: 0, y: rawDimensions.height },
     ]);
-    showToast('کادر به حالت پیش‌فرض تنظیم شد');
+    showToast('کادر کل تصویر انتخاب شد');
   };
 
   // High-performance perspective dewarp and photocopy generation
@@ -518,6 +537,13 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
 
       setPhotos(prev => [newPhotoItem, ...prev]);
       onPhotoCountChange?.(photos.length + 1);
+
+      // Natural orientation of the captured document
+      const isDocLandscape = targetWidth >= targetHeight;
+      setPrintSettings(prev => ({
+        ...prev,
+        orientation: isDocLandscape ? 'landscape' : 'portrait'
+      }));
 
       setActiveFilter('photocopy');
       setIsSavedToGallery(false);
@@ -774,53 +800,53 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
               </button>
             </div>
 
-            <div className="grid grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={() => setPrintSettings(prev => ({ ...prev, pageSize: 'A4', layoutMode: '1-in-1' }))}
-                className={`py-1.5 px-2 rounded-xl text-[11px] font-bold text-center border transition cursor-pointer ${
+                className={`py-2 px-2 rounded-xl text-center border-2 transition cursor-pointer ${
                   printSettings.pageSize === 'A4' && printSettings.layoutMode === '1-in-1'
-                    ? 'bg-emerald-50 border-emerald-500 text-emerald-800 shadow-xs'
-                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    ? 'bg-emerald-50 border-emerald-600 text-slate-900 shadow-sm'
+                    : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
                 }`}
               >
-                <span className="block text-xs">📄 برگه A4</span>
-                <span className="text-[9px] font-normal text-slate-500">تک‌سند اداری</span>
+                <span className="block text-xs font-black">📄 برگه A4</span>
+                <span className="text-[10px] font-bold text-slate-500">تک‌سند اداری</span>
               </button>
 
               <button
                 onClick={() => setPrintSettings(prev => ({ ...prev, pageSize: 'A5', layoutMode: '1-in-1' }))}
-                className={`py-1.5 px-2 rounded-xl text-[11px] font-bold text-center border transition cursor-pointer ${
+                className={`py-2 px-2 rounded-xl text-center border-2 transition cursor-pointer ${
                   printSettings.pageSize === 'A5' && printSettings.layoutMode === '1-in-1'
-                    ? 'bg-emerald-50 border-emerald-500 text-emerald-800 shadow-xs'
-                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    ? 'bg-emerald-50 border-emerald-600 text-slate-900 shadow-sm'
+                    : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
                 }`}
               >
-                <span className="block text-xs">📑 برگه A5</span>
-                <span className="text-[9px] font-normal text-slate-500">تک‌سند نیم‌صفحه</span>
+                <span className="block text-xs font-black">📑 برگه A5</span>
+                <span className="text-[10px] font-bold text-slate-500">نیم‌صفحه</span>
               </button>
 
               <button
                 onClick={() => setPrintSettings(prev => ({ ...prev, pageSize: 'A4', layoutMode: '2-in-1' }))}
-                className={`py-1.5 px-2 rounded-xl text-[11px] font-bold text-center border transition cursor-pointer ${
+                className={`py-2 px-2 rounded-xl text-center border-2 transition cursor-pointer ${
                   printSettings.layoutMode === '2-in-1'
-                    ? 'bg-emerald-50 border-emerald-500 text-emerald-800 shadow-xs'
-                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    ? 'bg-emerald-50 border-emerald-600 text-slate-900 shadow-sm'
+                    : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
                 }`}
               >
-                <span className="block text-xs">✂️ ۲ در ۱ A4</span>
-                <span className="text-[9px] font-normal text-slate-500">رو و پشت مدرک</span>
+                <span className="block text-xs font-black">✂️ ۲ در ۱</span>
+                <span className="text-[10px] font-bold text-slate-500">رو و پشت</span>
               </button>
             </div>
           </div>
 
           {/* Main Action Card */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-3.5 mb-3.5 shadow-sm">
-            <span className="text-[11px] font-bold text-slate-700 mb-2.5 block">عملیات اسکن مدرک</span>
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 mb-3.5 shadow-sm space-y-2.5">
+            <span className="text-xs font-extrabold text-slate-900 block">عملیات اسکن مدرک</span>
 
             {/* Primary Button: Open Camera */}
             <button
               onClick={() => setScreen('camera')}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-bold py-3.5 px-4 rounded-xl flex items-center justify-center gap-2 transition shadow-md shadow-emerald-600/25 text-sm mb-2.5 cursor-pointer"
+              className="w-full bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-black py-3.5 px-4 rounded-xl flex items-center justify-center gap-2.5 transition shadow-md shadow-emerald-600/25 text-sm sm:text-base cursor-pointer"
             >
               <Camera className="w-5 h-5" />
               <span>اسکن مدرک جدید با دوربین</span>
@@ -829,9 +855,9 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
             {/* Secondary Button: Pick from Gallery */}
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition text-xs border border-slate-200 cursor-pointer mb-2"
+              className="w-full bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-900 font-extrabold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition text-xs sm:text-sm border-2 border-slate-200 hover:border-slate-300 cursor-pointer shadow-2xs"
             >
-              <Upload className="w-4 h-4 text-slate-600" />
+              <Upload className="w-4 h-4 text-emerald-700" />
               <span>انتخاب عکس مدرک از گالری گوشی</span>
             </button>
 
@@ -841,10 +867,10 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
                 const sampleUrl = generateSampleDocument();
                 prepareImageForCrop(sampleUrl);
               }}
-              className="w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-semibold py-2 px-4 rounded-xl flex items-center justify-center gap-2 transition text-xs border border-emerald-200 cursor-pointer"
+              className="w-full bg-emerald-50/80 hover:bg-emerald-100 text-emerald-950 font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition text-xs border border-emerald-300/80 cursor-pointer"
             >
-              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-              <span>تست فوری با نمونه کارت ملی</span>
+              <Sparkles className="w-4 h-4 text-emerald-600" />
+              <span>تست سریع با نمونه مدرک شناسایی (کارت ملی)</span>
             </button>
           </div>
 
@@ -1224,28 +1250,38 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
           </div>
 
           {/* Crop Bottom Actions */}
-          <div className="h-20 bg-black/85 backdrop-blur-md px-4 flex items-center justify-between gap-3 border-t border-neutral-800">
+          <div className="h-20 bg-black/90 backdrop-blur-md px-3.5 flex items-center justify-between gap-2 border-t border-neutral-800">
+            <button
+              onClick={setFullFrameCorners}
+              className="bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 text-neutral-200 text-xs font-bold py-3 px-3 rounded-xl border border-neutral-700 cursor-pointer transition shrink-0"
+              title="انتخاب کل تصویر بدون برش"
+            >
+              کادر کامل
+            </button>
+
             <button
               onClick={resetCorners}
-              className="bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold py-3 px-3.5 rounded-xl border border-neutral-700 cursor-pointer"
+              className="bg-neutral-800 hover:bg-neutral-700 active:bg-neutral-900 text-neutral-200 text-xs font-bold py-3 px-3 rounded-xl border border-neutral-700 cursor-pointer transition shrink-0 flex items-center gap-1"
+              title="تشخیص خودکار مجدد لبه‌ها"
             >
-              تنظیم خودکار کادر
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              <span>تشخیص مجدد</span>
             </button>
 
             <button
               onClick={processCropAndFilters}
               disabled={isProcessing}
-              className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold py-3 px-4 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+              className="flex-1 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-black py-3 px-4 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-600/30 disabled:opacity-50 transition"
             >
               {isProcessing ? (
                 <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>در حال پردازش فتوکپی...</span>
+                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                  <span>در حال تبدیل به فتوکپی...</span>
                 </>
               ) : (
                 <>
-                  <Check className="w-4 h-4" />
-                  <span>تأیید و پردازش فتوکپی</span>
+                  <Check className="w-5 h-5 text-white stroke-[3]" />
+                  <span>تأیید و تبدیل به فتوکپی</span>
                 </>
               )}
             </button>
@@ -1289,21 +1325,21 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
           </div>
 
           {/* Quick Paper Format Selector Bar */}
-          <div className="bg-white/95 border-b border-slate-200 px-3 py-1.5 flex items-center justify-between gap-1 overflow-x-auto text-xs z-10">
-            <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1 shrink-0">
-              <Printer className="w-3 h-3 text-emerald-600" />
-              قالب کاغذ:
+          <div className="bg-white border-b border-slate-200 px-3 py-2 flex items-center justify-between gap-1 overflow-x-auto text-xs z-10">
+            <span className="text-xs font-bold text-slate-600 flex items-center gap-1.5 shrink-0">
+              <Printer className="w-3.5 h-3.5 text-emerald-600" />
+              قطع برگه:
             </span>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
                 onClick={() => {
                   setPrintSettings(prev => ({ ...prev, pageSize: 'A4', layoutMode: '1-in-1' }));
                   setIsSavedToGallery(false);
                 }}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer border-2 ${
                   printSettings.pageSize === 'A4' && printSettings.layoutMode === '1-in-1'
-                    ? 'bg-emerald-600 text-white shadow-2xs'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
+                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                 }`}
               >
                 A4 اداری
@@ -1314,10 +1350,10 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
                   setPrintSettings(prev => ({ ...prev, pageSize: 'A5', layoutMode: '1-in-1' }));
                   setIsSavedToGallery(false);
                 }}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer border-2 ${
                   printSettings.pageSize === 'A5' && printSettings.layoutMode === '1-in-1'
-                    ? 'bg-emerald-600 text-white shadow-2xs'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
+                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                 }`}
               >
                 A5 نیم‌صفحه
@@ -1328,10 +1364,10 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
                   setPrintSettings(prev => ({ ...prev, pageSize: 'A4', layoutMode: '2-in-1' }));
                   setIsSavedToGallery(false);
                 }}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer border-2 ${
                   printSettings.layoutMode === '2-in-1'
-                    ? 'bg-emerald-600 text-white shadow-2xs'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
+                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                 }`}
               >
                 ۲ در ۱ A4 (رو و پشت)
@@ -1430,93 +1466,93 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
           </div>
 
           {/* Professional Action Buttons (Save to Gallery as JPEG, PDF, Print Settings, Share) */}
-          <div className="p-3 bg-white border-t border-slate-200 space-y-2">
+          <div className="p-3.5 bg-white border-t border-slate-200 space-y-2.5">
             {/* Primary Action: Dedicated 'Save to Gallery' Button (JPEG to Public Storage) */}
             <button
               id="btn-save-to-gallery"
               onClick={saveToGalleryAsJpeg}
               disabled={isSavingGallery}
-              className={`w-full py-2.5 px-3.5 rounded-xl text-xs font-bold flex items-center justify-between transition cursor-pointer border shadow-sm ${
+              className={`w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-black flex items-center justify-between transition cursor-pointer border shadow-md ${
                 isSavedToGallery
                   ? 'bg-emerald-700 border-emerald-600 text-white shadow-emerald-700/20'
-                  : 'bg-emerald-600 hover:bg-emerald-500 border-emerald-600 text-white shadow-emerald-600/20'
+                  : 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 border-emerald-600 text-white shadow-emerald-600/30 active:scale-[0.99]'
               }`}
               title="ذخیره مستقیم برگه در گالری (حافظه عمومی دستگاه با فرمت JPEG)"
             >
-              <div className="flex items-center gap-2.5">
-                <div className="p-1.5 rounded-lg bg-white/20">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-white/20">
                   {isSavingGallery ? (
-                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    <RefreshCw className="w-5 h-5 animate-spin text-white" />
                   ) : isSavedToGallery ? (
-                    <CheckCircle2 className="w-4 h-4 text-white" />
+                    <CheckCircle2 className="w-5 h-5 text-white" />
                   ) : (
-                    <Download className="w-4 h-4 text-white" />
+                    <Download className="w-5 h-5 text-white" />
                   )}
                 </div>
                 <div className="flex flex-col text-right">
-                  <span className="font-extrabold text-xs leading-tight">
-                    {isSavedToGallery ? '✓ در گالری ذخیره شد (Saved to Gallery)' : 'ذخیره در گالری (Save to Gallery)'}
+                  <span className="font-extrabold text-sm sm:text-base leading-tight">
+                    {isSavedToGallery ? '✓ در گالری ذخیره شد' : 'ذخیره در گالری (فرمت استاندارد JPEG)'}
                   </span>
-                  <span className="text-[9px] text-emerald-100 font-medium">
+                  <span className="text-[11px] text-emerald-100 font-medium mt-0.5">
                     {printSettings.layoutMode === '2-in-1' 
-                      ? 'برگه A4 با ۲ سند رو و پشت (فرمت JPEG)' 
-                      : `برگه ${printSettings.pageSize} با فرمت JPEG`}
+                      ? 'برگه A4 با ۲ سند رو و پشت (کیفیت اصلی)' 
+                      : `برگه استاندارد ${printSettings.pageSize === 'A4' ? 'A4 اداری' : 'A5 نیم‌صفحه'}`}
                   </span>
                 </div>
               </div>
 
               <div className="flex items-center gap-1">
-                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-white/25 text-white border border-white/30">
+                <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-white/25 text-white border border-white/30">
                   JPEG
                 </span>
               </div>
             </button>
 
-            {/* Secondary Action Buttons Grid (PDF, Print Settings, Share, Rotate) */}
-            <div className="grid grid-cols-4 gap-1.5">
+            {/* Secondary Action Buttons Grid: 2 Columns, High Contrast, Readable */}
+            <div className="grid grid-cols-2 gap-2">
               <button
                 id="btn-export-pdf"
                 onClick={exportPdf}
                 disabled={isExportingPdf}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold py-2 px-1 rounded-xl text-[11px] flex flex-col items-center justify-center gap-1 border border-slate-200 cursor-pointer transition disabled:opacity-50"
+                className="bg-white hover:bg-emerald-50 active:bg-emerald-100 text-slate-800 hover:text-emerald-900 font-extrabold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-2 border-2 border-slate-200 hover:border-emerald-400 cursor-pointer transition shadow-2xs"
                 title={`خروجی استاندارد سند ${printSettings.pageSize} (PDF)`}
               >
                 {isExportingPdf ? (
                   <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" />
                 ) : (
-                  <FileText className="w-4 h-4 text-emerald-700" />
+                  <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
                 )}
-                <span>خروجی PDF</span>
+                <span>خروجی PDF اداری</span>
               </button>
 
               <button
                 id="btn-print-settings"
                 onClick={() => setIsPrintModalOpen(true)}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold py-2 px-1 rounded-xl text-[11px] flex flex-col items-center justify-center gap-1 border border-slate-200 cursor-pointer transition"
+                className="bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-800 font-extrabold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-2 border-2 border-slate-200 hover:border-slate-400 cursor-pointer transition shadow-2xs"
                 title="تنظیم ابعاد کاغذ (A4, A5, ۲ در ۱)"
               >
-                <Sliders className="w-4 h-4 text-indigo-600" />
-                <span>تنظیمات کاغذ</span>
-              </button>
-
-              <button
-                id="btn-share-doc"
-                onClick={shareDocument}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold py-2 px-1 rounded-xl text-[11px] flex flex-col items-center justify-center gap-1 border border-slate-200 cursor-pointer transition"
-                title="اشتراک‌گذاری مدرک"
-              >
-                <Share2 className="w-4 h-4 text-amber-600" />
-                <span>اشتراک‌گذاری</span>
+                <Sliders className="w-4 h-4 text-indigo-600 shrink-0" />
+                <span>تنظیمات قطع کاغذ</span>
               </button>
 
               <button
                 id="btn-rotate-doc"
                 onClick={rotateResult}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold py-2 px-1 rounded-xl text-[11px] flex flex-col items-center justify-center gap-1 border border-slate-200 cursor-pointer transition"
+                className="bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-800 font-extrabold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-2 border-2 border-slate-200 hover:border-slate-400 cursor-pointer transition shadow-2xs"
                 title="چرخش ۹۰ درجه تصویر"
               >
-                <RotateCcw className="w-4 h-4 text-slate-600" />
-                <span>چرخش ۹۰°</span>
+                <RotateCcw className="w-4 h-4 text-slate-700 shrink-0" />
+                <span>چرخش ۹۰ درجه</span>
+              </button>
+
+              <button
+                id="btn-share-doc"
+                onClick={shareDocument}
+                className="bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-800 font-extrabold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-2 border-2 border-slate-200 hover:border-slate-400 cursor-pointer transition shadow-2xs"
+                title="اشتراک‌گذاری مدرک"
+              >
+                <Share2 className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>اشتراک‌گذاری مدرک</span>
               </button>
             </div>
 
@@ -1524,9 +1560,9 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
             <button
               id="btn-scan-next"
               onClick={() => setScreen('camera')}
-              className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-2 px-4 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer border border-slate-200 transition"
+              className="w-full bg-slate-900 hover:bg-slate-800 active:bg-black text-white font-extrabold py-2.5 px-4 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md transition"
             >
-              <Camera className="w-4 h-4 text-emerald-700" />
+              <Camera className="w-4 h-4 text-emerald-400" />
               <span>اسکن مدرک بعدی</span>
             </button>
           </div>
