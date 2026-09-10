@@ -1,12 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="primary">#10B981</color>
-    <color name="primary_variant">#059669</color>
+    <color name="primary">#059669</color>
+    <color name="primary_variant">#047857</color>
     <color name="on_primary">#FFFFFF</color>
-    <color name="background">#121212</color>
-    <color name="surface">#1E1E1E</color>
-    <color name="on_surface">#EEEEEE</color>
+    <color name="background">#F8FAFC</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="surface_variant">#F1F5F9</color>
+    <color name="surface_border">#E2E8F0</color>
+    <color name="on_surface">#0F172A</color>
+    <color name="on_surface_variant">#64748B</color>
     <color name="shutter_button">#FFFFFF</color>
-    <color name="shutter_ring">#10B981</color>
-    <color name="overlay_bar">#80000000</color>
+    <color name="shutter_ring">#059669</color>
+    <color name="overlay_bar">#FFFFFF</color>
+    
+    <!-- Accent colors -->
+    <color name="emerald_600">#059669</color>
+    <color name="emerald_700">#047857</color>
+    <color name="emerald_50">#ECFDF5</color>
+    <color name="emerald_100">#D1FAE5</color>
+    <color name="slate_50">#F8FAFC</color>
+    <color name="slate_100">#F1F5F9</color>
+    <color name="slate_200">#E2E8F0</color>
+    <color name="slate_300">#CBD5E1</color>
+    <color name="slate_600">#475569</color>
+    <color name="slate_700">#334155</color>
+    <color name="slate_900">#0F172A</color>
+    <color name="indigo_600">#4F46E5</color>
+    <color name="amber_600">#D97706</color>
 </resources>

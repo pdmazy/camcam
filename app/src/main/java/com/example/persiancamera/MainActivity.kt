@@ -1,5 +1,6 @@
 package com.example.persiancamera
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
@@ -7,6 +8,8 @@ import android.os.Bundle
 import android.view.View
 import android.view.animation.AlphaAnimation
 import android.view.animation.Animation
+import android.widget.Button
+import android.widget.ImageButton
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,6 +18,12 @@ import androidx.core.view.ViewCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.persiancamera.camera.CameraManager
 import com.example.persiancamera.databinding.ActivityMainBinding
+import com.example.persiancamera.print.LayoutMode
+import com.example.persiancamera.print.Orientation
+import com.example.persiancamera.print.PageSize
+import com.example.persiancamera.print.PrintLayoutManager
+import com.example.persiancamera.print.PrintSettings
+import com.example.persiancamera.storage.PhotoStorageManager
 import com.example.persiancamera.util.ImageProcessor
 import com.example.persiancamera.util.PermissionUtils
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +34,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var cameraManager: CameraManager
+    private lateinit var storageManager: PhotoStorageManager
+    private lateinit var printLayoutManager: PrintLayoutManager
 
     // Current working bitmaps
     private var rawCapturedBitmap: Bitmap? = null
@@ -32,11 +43,25 @@ class MainActivity : AppCompatActivity() {
     private var photocopyBitmap: Bitmap? = null
     private var magicColorBitmap: Bitmap? = null
     private var grayscaleBitmap: Bitmap? = null
+    private var secondaryDocBitmap: Bitmap? = null
+    private var currentSheetBitmap: Bitmap? = null
+
     private var activeFilter = "photocopy"
     private var lastCapturedUri: Uri? = null
+    private var lastGallerySavedUri: Uri? = null
+
+    // Print and sheet dimensions configuration
+    private val printSettings = PrintSettings(
+        pageSize = PageSize.A4,
+        orientation = Orientation.PORTRAIT,
+        layoutMode = LayoutMode.SINGLE_PAGE,
+        marginMm = 10f,
+        autoRotateLandscape = true
+    )
 
     // Track if current crop came from gallery or camera
     private var isSourceFromGallery = false
+    private var isCapturingBackSide = false
 
     // Permission launcher for Camera
     private val requestPermissionLauncher = registerForActivityResult(
@@ -63,6 +88,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Gallery picker for secondary photo (2-in-1 back of document)
+    private val secondaryGalleryLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            loadSecondaryBitmap(uri)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -73,6 +107,8 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         cameraManager = CameraManager(this, this, binding.viewFinder)
+        storageManager = PhotoStorageManager(this)
+        printLayoutManager = PrintLayoutManager(this)
 
         // Handle Android Back Navigation gracefully between screens
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -106,6 +142,7 @@ class MainActivity : AppCompatActivity() {
     private fun setupListeners() {
         // ================= HOME DASHBOARD LISTENERS =================
         binding.btnHomeStartScan.setOnClickListener {
+            isCapturingBackSide = false
             if (PermissionUtils.hasPermissions(this)) {
                 openCameraScreen()
             } else {
@@ -114,13 +151,25 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnHomePickGallery.setOnClickListener {
+            isCapturingBackSide = false
             galleryLauncher.launch("image/*")
         }
 
         binding.btnHomeOpenRecent.setOnClickListener {
-            if (photocopyBitmap != null || dewarpedBitmap != null) {
+            if (currentSheetBitmap != null || photocopyBitmap != null || dewarpedBitmap != null) {
                 showResultScreen()
             }
+        }
+
+        // Home Paper Size selectors
+        binding.btnHomePaperA4.setOnClickListener {
+            updatePaperMode(PageSize.A4, LayoutMode.SINGLE_PAGE)
+        }
+        binding.btnHomePaperA5.setOnClickListener {
+            updatePaperMode(PageSize.A5, LayoutMode.SINGLE_PAGE)
+        }
+        binding.btnHomePaper2in1.setOnClickListener {
+            updatePaperMode(PageSize.A4, LayoutMode.TWO_IN_ONE_A4)
         }
 
         // ================= CAMERA SCREEN LISTENERS =================
@@ -156,7 +205,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.imgLastCapture.setOnClickListener {
-            if (photocopyBitmap != null) {
+            if (currentSheetBitmap != null || photocopyBitmap != null) {
                 showResultScreen()
             }
         }
@@ -190,7 +239,27 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnNewPhoto.setOnClickListener {
+            isCapturingBackSide = false
             openCameraScreen()
+        }
+
+        // Quick Paper Buttons on Result View
+        binding.btnPaperA4.setOnClickListener {
+            updatePaperMode(PageSize.A4, LayoutMode.SINGLE_PAGE)
+            renderAndDisplaySheet()
+        }
+        binding.btnPaperA5.setOnClickListener {
+            updatePaperMode(PageSize.A5, LayoutMode.SINGLE_PAGE)
+            renderAndDisplaySheet()
+        }
+        binding.btnPaper2in1.setOnClickListener {
+            updatePaperMode(PageSize.A4, LayoutMode.TWO_IN_ONE_A4)
+            renderAndDisplaySheet()
+        }
+
+        // 2-in-1 Banner: Add back side of document
+        binding.btnAddBackDoc.setOnClickListener {
+            secondaryGalleryLauncher.launch("image/*")
         }
 
         // Filter Mode Switchers
@@ -219,35 +288,215 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // SAVE DIRECTLY TO GALLERY (JPEG)
+        binding.btnSaveToGallery.setOnClickListener {
+            val sheetToSave = currentSheetBitmap ?: getCurrentActiveBitmap()
+            if (sheetToSave != null) {
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val savedUri = storageManager.saveBitmapToGallery(sheetToSave, "PHOTOCOPY_SCAN")
+                    withContext(Dispatchers.Main) {
+                        if (savedUri != null) {
+                            lastGallerySavedUri = savedUri
+                            binding.btnSaveToGallery.text = getString(R.string.btn_save_to_gallery_saved)
+                            Toast.makeText(this@MainActivity, getString(R.string.toast_saved_to_gallery), Toast.LENGTH_LONG).show()
+
+                            // Restore button label after 3 seconds
+                            binding.btnSaveToGallery.postDelayed({
+                                binding.btnSaveToGallery.text = getString(R.string.btn_save_to_gallery)
+                            }, 3000)
+                        } else {
+                            Toast.makeText(this@MainActivity, "خطا در ذخیره‌سازی گالری", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+        }
+
+        // Open Print Settings Dialog
+        binding.btnOpenPrintSettings.setOnClickListener {
+            showPrintSettingsDialog()
+        }
+        binding.btnPaperSettings.setOnClickListener {
+            showPrintSettingsDialog()
+        }
+
         // Share Document
         binding.btnShareDoc.setOnClickListener {
-            val currentBitmap = getCurrentActiveBitmap()
-            if (currentBitmap != null) {
-                lastCapturedUri?.let { uri ->
-                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                        type = "image/jpeg"
-                        putExtra(Intent.EXTRA_STREAM, uri)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val uriToShare = lastGallerySavedUri ?: lastCapturedUri
+            if (uriToShare != null) {
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "image/jpeg"
+                    putExtra(Intent.EXTRA_STREAM, uriToShare)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(Intent.createChooser(shareIntent, "اشتراک‌گذاری مدرک اسکن شده"))
+            } else {
+                // First save to gallery then share
+                val sheet = currentSheetBitmap ?: getCurrentActiveBitmap()
+                if (sheet != null) {
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        val saved = storageManager.saveBitmapToGallery(sheet, "TEMP_SHARE")
+                        withContext(Dispatchers.Main) {
+                            if (saved != null) {
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "image/jpeg"
+                                    putExtra(Intent.EXTRA_STREAM, saved)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                startActivity(Intent.createChooser(shareIntent, "اشتراک‌گذاری مدرک"))
+                            }
+                        }
                     }
-                    startActivity(Intent.createChooser(shareIntent, "اشتراک‌گذاری مدرک اسکن شده"))
-                } ?: Toast.makeText(this, "تصویری برای اشتراک یافت نشد", Toast.LENGTH_SHORT).show()
+                }
             }
         }
 
         // Export PDF
         binding.btnExportPdf.setOnClickListener {
-            val currentBitmap = getCurrentActiveBitmap()
-            if (currentBitmap != null) {
+            val sheet = currentSheetBitmap ?: getCurrentActiveBitmap()
+            if (sheet != null) {
                 lifecycleScope.launch(Dispatchers.IO) {
-                    val pdfUri = ImageProcessor.exportToPdf(this@MainActivity, currentBitmap, "مدرک اسکن شده")
+                    val pdfUri = printLayoutManager.exportToPdfUri(sheet, "Scan_${System.currentTimeMillis()}")
                     withContext(Dispatchers.Main) {
                         if (pdfUri != null) {
                             Toast.makeText(this@MainActivity, getString(R.string.pdf_saved_success), Toast.LENGTH_LONG).show()
                         } else {
-                            Toast.makeText(this@MainActivity, "خطا در تولید فایل PDF", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this@MainActivity, "خطا در صدور فایل PDF", Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private fun updatePaperMode(pageSize: PageSize, layoutMode: LayoutMode) {
+        printSettings.pageSize = pageSize
+        printSettings.layoutMode = layoutMode
+
+        // Update UI Button Styles for Home and Result
+        val isA4 = pageSize == PageSize.A4 && layoutMode == LayoutMode.SINGLE_PAGE
+        val isA5 = pageSize == PageSize.A5 && layoutMode == LayoutMode.SINGLE_PAGE
+        val is2in1 = layoutMode == LayoutMode.TWO_IN_ONE_A4
+
+        // Home Buttons
+        binding.btnHomePaperA4.setBackgroundResource(if (isA4) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+        binding.btnHomePaperA5.setBackgroundResource(if (isA5) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+        binding.btnHomePaper2in1.setBackgroundResource(if (is2in1) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+
+        // Result Buttons
+        binding.btnPaperA4.setBackgroundResource(if (isA4) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+        binding.btnPaperA5.setBackgroundResource(if (isA5) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+        binding.btnPaper2in1.setBackgroundResource(if (is2in1) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+
+        // 2-in-1 Banner visibility
+        binding.layout2in1Banner.visibility = if (is2in1 && secondaryDocBitmap == null) View.VISIBLE else View.GONE
+
+        // Badge update
+        val orientationText = if (printSettings.orientation == Orientation.PORTRAIT) "عمودی" else "افقی"
+        binding.txtPaperBadge.text = when {
+            is2in1 -> "برگه A4 • ۲ در ۱ رو و پشت ($orientationText)"
+            isA5 -> "برگه A5 نیم‌صفحه • $orientationText"
+            else -> "برگه A4 اداری • $orientationText"
+        }
+    }
+
+    // ================= PRINT SETTINGS DIALOG =================
+    private fun showPrintSettingsDialog() {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_print_settings, null)
+        val dialog = AlertDialog.Builder(this)
+            .setView(dialogView)
+            .create()
+
+        val dlgBtnA4 = dialogView.findViewById<Button>(R.id.dlgBtnA4)
+        val dlgBtnA5 = dialogView.findViewById<Button>(R.id.dlgBtnA5)
+        val dlgBtn2in1 = dialogView.findViewById<Button>(R.id.dlgBtn2in1)
+        val dlgBtnPortrait = dialogView.findViewById<Button>(R.id.dlgBtnPortrait)
+        val dlgBtnLandscape = dialogView.findViewById<Button>(R.id.dlgBtnLandscape)
+        val dlgBtnMarginStd = dialogView.findViewById<Button>(R.id.dlgBtnMarginStd)
+        val dlgBtnMarginNarrow = dialogView.findViewById<Button>(R.id.dlgBtnMarginNarrow)
+        val btnClose = dialogView.findViewById<ImageButton>(R.id.btnCloseDialog)
+        val btnApply = dialogView.findViewById<Button>(R.id.dlgBtnApply)
+
+        fun refreshDialogButtons() {
+            val isA4 = printSettings.pageSize == PageSize.A4 && printSettings.layoutMode == LayoutMode.SINGLE_PAGE
+            val isA5 = printSettings.pageSize == PageSize.A5 && printSettings.layoutMode == LayoutMode.SINGLE_PAGE
+            val is2in1 = printSettings.layoutMode == LayoutMode.TWO_IN_ONE_A4
+
+            dlgBtnA4.setBackgroundResource(if (isA4) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+            dlgBtnA5.setBackgroundResource(if (isA5) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+            dlgBtn2in1.setBackgroundResource(if (is2in1) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+
+            val isPort = printSettings.orientation == Orientation.PORTRAIT
+            dlgBtnPortrait.setBackgroundResource(if (isPort) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+            dlgBtnLandscape.setBackgroundResource(if (!isPort) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+
+            val isStdMargin = printSettings.marginMm >= 10f
+            dlgBtnMarginStd.setBackgroundResource(if (isStdMargin) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+            dlgBtnMarginNarrow.setBackgroundResource(if (!isStdMargin) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+        }
+
+        refreshDialogButtons()
+
+        dlgBtnA4.setOnClickListener {
+            updatePaperMode(PageSize.A4, LayoutMode.SINGLE_PAGE)
+            refreshDialogButtons()
+        }
+        dlgBtnA5.setOnClickListener {
+            updatePaperMode(PageSize.A5, LayoutMode.SINGLE_PAGE)
+            refreshDialogButtons()
+        }
+        dlgBtn2in1.setOnClickListener {
+            updatePaperMode(PageSize.A4, LayoutMode.TWO_IN_ONE_A4)
+            refreshDialogButtons()
+        }
+
+        dlgBtnPortrait.setOnClickListener {
+            printSettings.orientation = Orientation.PORTRAIT
+            refreshDialogButtons()
+        }
+        dlgBtnLandscape.setOnClickListener {
+            printSettings.orientation = Orientation.LANDSCAPE
+            refreshDialogButtons()
+        }
+
+        dlgBtnMarginStd.setOnClickListener {
+            printSettings.marginMm = 10f
+            refreshDialogButtons()
+        }
+        dlgBtnMarginNarrow.setOnClickListener {
+            printSettings.marginMm = 5f
+            refreshDialogButtons()
+        }
+
+        btnClose.setOnClickListener { dialog.dismiss() }
+        btnApply.setOnClickListener {
+            dialog.dismiss()
+            updatePaperMode(printSettings.pageSize, printSettings.layoutMode)
+            renderAndDisplaySheet()
+        }
+
+        dialog.show()
+    }
+
+    // ================= DOCUMENT SHEET RENDERING =================
+    private fun renderAndDisplaySheet() {
+        val currentDoc = getCurrentActiveBitmap() ?: return
+        binding.progressConverting.visibility = View.VISIBLE
+
+        lifecycleScope.launch(Dispatchers.Default) {
+            val sheet = printLayoutManager.renderDocumentSheet(
+                frontDoc = currentDoc,
+                backDoc = secondaryDocBitmap,
+                settings = printSettings,
+                dpi = 150
+            )
+            currentSheetBitmap = sheet
+
+            withContext(Dispatchers.Main) {
+                binding.progressConverting.visibility = View.GONE
+                binding.imgResultBW.setImageBitmap(sheet)
+                binding.imgLastCapture.setImageBitmap(sheet)
+                binding.imgHomeRecentThumb.setImageBitmap(sheet)
             }
         }
     }
@@ -260,10 +509,12 @@ class MainActivity : AppCompatActivity() {
         binding.resultOverlay.visibility = View.GONE
 
         // Update Recent Documents Card on Home
-        if (photocopyBitmap != null || dewarpedBitmap != null) {
+        val recentBmp = currentSheetBitmap ?: photocopyBitmap ?: dewarpedBitmap
+        if (recentBmp != null) {
             binding.layoutRecentDocument.visibility = View.VISIBLE
             binding.txtEmptyRecent.visibility = View.GONE
-            binding.imgHomeRecentThumb.setImageBitmap(photocopyBitmap ?: dewarpedBitmap)
+            binding.imgHomeRecentThumb.setImageBitmap(recentBmp)
+            binding.txtRecentFormatInfo.text = "برگه آماده • " + binding.txtPaperBadge.text
         } else {
             binding.layoutRecentDocument.visibility = View.GONE
             binding.txtEmptyRecent.visibility = View.VISIBLE
@@ -316,6 +567,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun loadSecondaryBitmap(uri: Uri) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val bitmap = ImageProcessor.decodeAndRotateBitmap(contentResolver, uri)
+            if (bitmap != null) {
+                // Apply photocopy to back document
+                val processedBack = ImageProcessor.toPhotocopy(bitmap)
+                secondaryDocBitmap = processedBack
+                withContext(Dispatchers.Main) {
+                    binding.layout2in1Banner.visibility = View.GONE
+                    renderAndDisplaySheet()
+                    Toast.makeText(this@MainActivity, "پشت مدرک با موفقیت اضافه شد", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     private fun processAndWarpDocument() {
         val src = rawCapturedBitmap ?: return
         binding.btnApplyCrop.isEnabled = false
@@ -336,18 +603,12 @@ class MainActivity : AppCompatActivity() {
             magicColorBitmap = magic
             grayscaleBitmap = gray
 
-            // Save default photocopy version to uri if available
-            lastCapturedUri?.let { uri ->
-                ImageProcessor.saveBitmapToUri(contentResolver, uri, photo)
-            }
-
             withContext(Dispatchers.Main) {
                 binding.btnApplyCrop.isEnabled = true
-                binding.imgResultBW.setImageBitmap(photo)
-                binding.imgLastCapture.setImageBitmap(photo)
                 activeFilter = "photocopy"
                 updateFilterChipsUI("photocopy")
                 showResultScreen()
+                renderAndDisplaySheet()
                 Toast.makeText(this@MainActivity, getString(R.string.bw_photo_saved), Toast.LENGTH_SHORT).show()
             }
         }
@@ -366,29 +627,15 @@ class MainActivity : AppCompatActivity() {
 
             withContext(Dispatchers.Main) {
                 binding.progressConverting.visibility = View.GONE
-                applyFilterSelection(activeFilter)
+                renderAndDisplaySheet()
             }
         }
     }
 
     private fun applyFilterSelection(filterName: String) {
         activeFilter = filterName
-        val targetBitmap = when (filterName) {
-            "photocopy" -> photocopyBitmap ?: dewarpedBitmap
-            "magic_color" -> magicColorBitmap ?: dewarpedBitmap
-            "grayscale" -> grayscaleBitmap ?: dewarpedBitmap
-            else -> dewarpedBitmap
-        }
-
-        if (targetBitmap != null) {
-            binding.imgResultBW.setImageBitmap(targetBitmap)
-            updateFilterChipsUI(filterName)
-            lastCapturedUri?.let { uri ->
-                lifecycleScope.launch(Dispatchers.IO) {
-                    ImageProcessor.saveBitmapToUri(contentResolver, uri, targetBitmap)
-                }
-            }
-        }
+        updateFilterChipsUI(filterName)
+        renderAndDisplaySheet()
     }
 
     private fun getCurrentActiveBitmap(): Bitmap? {

@@ -44,4 +44,28 @@
     <string name="filter_original">عکس اصلی</string>
     <string name="bw_photo_saved">مدرک با موفقیت اسکن و پردازش شد</string>
     <string name="bw_image_desc">نسخه اسکن شده مدرک</string>
+
+    <!-- ابعاد کاغذ و ذخیره مستقیم در گالری -->
+    <string name="btn_save_to_gallery">ذخیره در گالری (Save to Gallery)</string>
+    <string name="btn_save_to_gallery_saved">✓ در گالری ذخیره شد (Saved to Gallery)</string>
+    <string name="btn_save_to_gallery_sub">خروجی برگه با فرمت JPEG در حافظه عمومی (Pictures)</string>
+    <string name="paper_format_label">قالب کاغذ:</string>
+    <string name="paper_a4">A4 اداری</string>
+    <string name="paper_a5">A5 نیم‌صفحه</string>
+    <string name="paper_2in1">۲ در ۱ A4 (رو و پشت)</string>
+    <string name="btn_print_settings">تنظیمات چاپ</string>
+    <string name="print_settings_title">تنظیمات اندازه و چاپ برگه</string>
+    <string name="print_settings_desc">ابعاد کاغذ، جهت و چینش سند را برای چاپ انتخاب کنید</string>
+    <string name="orientation_label">جهت برگه:</string>
+    <string name="orientation_portrait">عمودی</string>
+    <string name="orientation_landscape">افقی</string>
+    <string name="two_in_one_prompt">کپی ۲ در ۱: سند دوم را اضافه کنید</string>
+    <string name="btn_add_back_doc">+ افزودن پشت مدرک</string>
+    <string name="two_in_one_badge">برگه A4 • دو سند رو و پشت (با خط برش)</string>
+    <string name="toast_saved_to_gallery">برگه با کیفیت بالا در گالری ذخیره شد (JPEG)</string>
+    <string name="margin_label">حاشیه کاغذ:</string>
+    <string name="margin_standard">استاندارد (۱۰ میلی‌متر)</string>
+    <string name="margin_narrow">باریک (۵ میلی‌متر)</string>
+    <string name="margin_zero">بدون حاشیه</string>
+    <string name="close">بستن</string>
 </resources>

@@ -585,14 +585,94 @@ class CameraManager(
     language: 'xml',
     description: 'رابط کاربری RTL شامل صفحه خانه، دوربین با لایه کادر نیمه‌شفاف تشخیص لبه‌ها، تنظیم گوشه‌ها و پیش‌نمایش فتوکپی با دکمه ذخیره در گالری (JPEG) و تنظیمات ابعاد کاغذ',
     content: `<!-- لایه‌بندی ۴ صفحه‌ای اسکنر و فتوکپی مدرک -->
-<!-- ۱. homeView: صفحه اصلی با دکمه دوربین، گالری، تنظیم قالب برگه خروجی (A4, A5, ۲ در ۱) و اسناد اخیر -->
-<!-- ۲. cameraView: پیش‌نمایش زنده دوربین همراه با DocumentEdgeDetectionOverlayView (کادر نیمه‌شفاف تشخیص لبه‌ها) -->
-<!-- ۳. cropView: تنظیم تعاملی ۴ گوشه سند و چرخش زاویه -->
-<!-- ۴. resultOverlay: پیش‌نمایش مدرک پردازش شده همراه با: -->
-<!--    - انتخابگر قالب چاپ: A4 اداری، A5 نیم‌صفحه، و ۲ در ۱ رو و پشت A4 با خط برش -->
-<!--    - btnSaveToGallery: ذخیره مستقیم برگه در گالری عمومی دستگاه به عنوان فایل JPEG -->
-<!--    - btnExportPdf: خروجی استاندارد PDF بر اساس ابعاد انتخابی کاغذ با کتابخانه بومی اندروید -->
-<!--    - فیلترهای فتوکپی کنتراست بالا، اسکن رنگی، خاکستری و اصلی -->`
+<!-- ۱. homeView: صفحه اصلی با دکمه شروع اسکن، گالری، انتخابگر سریع قطع کاغذ (A4، A5، ۲ در ۱) و سند اخیر -->
+<!-- ۲. cameraView: پیش‌نمایش زنده دوربین CameraX، راهنمای کادربندی مدرک، دکمه شاتر و سوییچ -->
+<!-- ۳. cropView: تنظیم تعاملی ۴ گوشه با CropOverlayView، چرخش ۹۰ درجه و برش پرسپکتیو -->
+<!-- ۴. resultOverlay: پیش‌نمایش برگه مدرک روی پایه استاندارد، فیلترهای فتوکپی و دکمه‌های خروجی: -->
+<!--    - btnSaveToGallery: ذخیره مستقیم برگه در گالری عمومی دستگاه به عنوان فایل باکیفیت JPEG -->
+<!--    - quickPaperBar: انتخاب ابعاد برگه (A4 اداری، A5 نیم‌صفحه، و ۲ در ۱ رو و پشت A4 با خط برش) -->
+<!--    - btnExportPdf: خروجی استاندارد و باکیفیت PDF با کتابخانه بومی اندروید -->
+<!--    - btnOpenPrintSettings: پنجره دیالوگ تنظیم جهت، حاشیه و چینش برگه -->`
+  },
+  {
+    path: 'app/src/main/res/layout/dialog_print_settings.xml',
+    title: 'دیالوگ تنظیمات کاغذ و چاپ (dialog_print_settings.xml)',
+    language: 'xml',
+    description: 'دیالوگ اختصاصی برای انتخاب قطع کاغذ (A4/A5)، جهت صفحه (عمودی/افقی) و حاشیه برگه',
+    content: `<!-- دیالوگ تنظیمات ابعاد و جهت کاغذ -->
+<!-- شامل انتخاب قطع A4 اداری، A5 نیم‌صفحه، ۲ در ۱ رو و پشت -->
+<!-- جهت عمودی یا افقی و تنظیم حاشیه استاندارد یا باریک -->`
+  },
+  {
+    path: 'app/src/main/java/com/example/persiancamera/storage/PhotoStorageManager.kt',
+    title: 'مدیریت ذخیره‌سازی در گالری (PhotoStorageManager.kt)',
+    language: 'kotlin',
+    description: 'ذخیره مستقیم خروجی برگه با فرمت JPEG در گالری عمومی دستگاه (MediaStore Pictures) سازگار با اندروید ۱۰+ و نسخه‌های قدیمی',
+    content: `package com.example.persiancamera.storage
+
+import android.content.ContentValues
+import android.content.Context
+import android.graphics.Bitmap
+import android.media.MediaScannerConnection
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import androidx.camera.core.ImageCapture
+import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Locale
+
+class PhotoStorageManager(private val context: Context) {
+
+    companion object {
+        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
+        private const val DIRECTORY_NAME = "Pictures/PersianCamera"
+    }
+
+    /**
+     * ذخیره مستقیم برگه اسکن شده در گالری عمومی دستگاه (Pictures) با فرمت JPEG
+     */
+    fun saveBitmapToGallery(bitmap: Bitmap, prefix: String = "PHOTOCOPY"): Uri? {
+        val timeStamp = SimpleDateFormat(FILENAME_FORMAT, Locale.US).format(System.currentTimeMillis())
+        val fileName = "\${prefix}_\$timeStamp.jpg"
+
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, DIRECTORY_NAME)
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
+
+                val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                if (uri != null) {
+                    context.contentResolver.openOutputStream(uri)?.use { stream ->
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 96, stream)
+                    }
+                    contentValues.clear()
+                    contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+                    context.contentResolver.update(uri, contentValues, null, null)
+                    uri
+                } else null
+            } else {
+                val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "PersianCamera")
+                if (!dir.exists()) dir.mkdirs()
+                val file = File(dir, fileName)
+                FileOutputStream(file).use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 96, out)
+                }
+                MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), arrayOf("image/jpeg"), null)
+                Uri.fromFile(file)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+}`
   },
   {
     path: 'app/src/main/java/com/example/persiancamera/print/PrintLayoutManager.kt',
@@ -617,10 +697,22 @@ enum class PageSize(val widthMm: Float, val heightMm: Float) {
     A5(148f, 210f)
 }
 
+enum class Orientation {
+    PORTRAIT, LANDSCAPE
+}
+
 enum class LayoutMode {
     SINGLE_PAGE,     // ۱ سند در کل صفحه
     TWO_IN_ONE_A4    // ۲ سند در یک صفحه A4 (رو و پشت با خط برش)
 }
+
+data class PrintSettings(
+    var pageSize: PageSize = PageSize.A4,
+    var orientation: Orientation = Orientation.PORTRAIT,
+    var layoutMode: LayoutMode = LayoutMode.SINGLE_PAGE,
+    var marginMm: Float = 10f,
+    var autoRotateLandscape: Boolean = true
+)
 
 class PrintLayoutManager(private val context: Context) {
 
@@ -630,23 +722,31 @@ class PrintLayoutManager(private val context: Context) {
     fun renderDocumentSheet(
         frontDoc: Bitmap,
         backDoc: Bitmap? = null,
-        pageSize: PageSize = PageSize.A4,
-        layoutMode: LayoutMode = LayoutMode.SINGLE_PAGE,
+        settings: PrintSettings,
         dpi: Int = 150
     ): Bitmap {
         val mmToPixel = dpi / 25.4f
-        val sheetWidth = (pageSize.widthMm * mmToPixel).toInt()
-        val sheetHeight = (pageSize.heightMm * mmToPixel).toInt()
+        var sheetWidthMm = settings.pageSize.widthMm
+        var sheetHeightMm = settings.pageSize.heightMm
+
+        if (settings.orientation == Orientation.LANDSCAPE) {
+            sheetWidthMm = settings.pageSize.heightMm
+            sheetHeightMm = settings.pageSize.widthMm
+        }
+
+        val sheetWidth = (sheetWidthMm * mmToPixel).toInt()
+        val sheetHeight = (sheetHeightMm * mmToPixel).toInt()
 
         val sheetBitmap = Bitmap.createBitmap(sheetWidth, sheetHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(sheetBitmap)
 
-        // ۱. پس‌زمینه کاغذ کاملاً سفید
+        // ۱. پس‌زمینه کاغذ کاملاً سفید اداری
         canvas.drawColor(Color.WHITE)
 
-        val marginPx = 10f * mmToPixel // ۱۰ میلی‌متر حاشیه استاندارد اداری
+        val marginPx = settings.marginMm * mmToPixel
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
-        when (layoutMode) {
+        when (settings.layoutMode) {
             LayoutMode.SINGLE_PAGE -> {
                 val availW = sheetWidth - 2 * marginPx
                 val availH = sheetHeight - 2 * marginPx
@@ -656,32 +756,27 @@ class PrintLayoutManager(private val context: Context) {
                 val left = marginPx + (availW - destW) / 2f
                 val top = marginPx + (availH - destH) / 2f
 
-                canvas.drawBitmap(frontDoc, null, RectF(left, top, left + destW, top + destH), null)
+                canvas.drawBitmap(frontDoc, null, RectF(left, top, left + destW, top + destH), paint)
             }
             LayoutMode.TWO_IN_ONE_A4 -> {
-                // تقسیم برگه A4 به دو نیمه افقی (بالا و پایین)
                 val halfHeight = sheetHeight / 2f
                 val availW = sheetWidth - 2 * marginPx
                 val availHalfH = halfHeight - 2 * marginPx
 
-                // سند اول (رو) در نیمه بالا
+                // ۱. سند اول (رو) در نیمه بالا
                 val scale1 = minOf(availW / frontDoc.width, availHalfH / frontDoc.height)
                 val destW1 = frontDoc.width * scale1
                 val destH1 = frontDoc.height * scale1
-                val left1 = marginPx + (availW - destW1) / 2f
-                val top1 = marginPx + (availHalfH - destH1) / 2f
-                canvas.drawBitmap(frontDoc, null, RectF(left1, top1, left1 + destW1, top1 + destH1), null)
+                canvas.drawBitmap(frontDoc, null, RectF(marginPx + (availW - destW1)/2f, marginPx + (availHalfH - destH1)/2f, marginPx + (availW + destW1)/2f, marginPx + (availHalfH + destH1)/2f), paint)
 
-                // سند دوم (پشت) در نیمه پایین (یا تکرار سند اول)
-                val secondBitmap = backDoc ?: frontDoc
-                val scale2 = minOf(availW / secondBitmap.width, availHalfH / secondBitmap.height)
-                val destW2 = secondBitmap.width * scale2
-                val destH2 = secondBitmap.height * scale2
-                val left2 = marginPx + (availW - destW2) / 2f
-                val top2 = halfHeight + marginPx + (availHalfH - destH2) / 2f
-                canvas.drawBitmap(secondBitmap, null, RectF(left2, top2, left2 + destW2, top2 + destH2), null)
+                // ۲. سند دوم (پشت) در نیمه پایین
+                val secondDoc = backDoc ?: frontDoc
+                val scale2 = minOf(availW / secondDoc.width, availHalfH / secondDoc.height)
+                val destW2 = secondDoc.width * scale2
+                val destH2 = secondDoc.height * scale2
+                canvas.drawBitmap(secondDoc, null, RectF(marginPx + (availW - destW2)/2f, halfHeight + marginPx + (availHalfH - destH2)/2f, marginPx + (availW + destW2)/2f, halfHeight + marginPx + (availHalfH + destH2)/2f), paint)
 
-                // رسم خط‌چین برش اداری ✂ در وسط صفحه
+                // ۳. خط‌چین برش اداری ✂ در وسط صفحه
                 val cutLinePaint = Paint().apply {
                     color = Color.parseColor("#94A3B8")
                     strokeWidth = 2f
@@ -692,31 +787,7 @@ class PrintLayoutManager(private val context: Context) {
             }
         }
 
-        return sheetBitmap
-    }
-
-    /**
-     * صدور فایل PDF استاندارد برداری برای پرینت با Android PdfDocument
-     */
-    fun exportToPdf(sheetBitmap: Bitmap, outputFile: File): Boolean {
-        val document = PdfDocument()
-        val pageInfo = PdfDocument.PageInfo.Builder(sheetBitmap.width, sheetBitmap.height, 1).create()
-        val page = document.startPage(pageInfo)
-
-        page.canvas.drawBitmap(sheetBitmap, 0f, 0f, null)
-        document.finishPage(page)
-
-        return try {
-            FileOutputStream(outputFile).use { out ->
-                document.writeTo(out)
-            }
-            document.close()
-            true
-        } catch (e: Exception) {
-            e.printStackTrace()
-            document.close()
-            false
-        }
+        return sheetBitmap;
     }
 }`
   }

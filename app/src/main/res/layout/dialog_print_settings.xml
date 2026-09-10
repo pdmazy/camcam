@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/card_surface_bg"
+    android:padding="20dp"
+    android:layoutDirection="rtl">
+
+    <!-- Dialog Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="16dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/print_settings_title"
+            android:textColor="@color/on_surface"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <ImageButton
+            android:id="@+id/btnCloseDialog"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            app:tint="@color/on_surface_variant"
+            android:contentDescription="@string/close" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/print_settings_desc"
+        android:textColor="@color/on_surface_variant"
+        android:textSize="12sp"
+        android:layout_marginBottom="16dp" />
+
+    <!-- Paper Size Section -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/paper_format_label"
+        android:textColor="@color/on_surface"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="16dp">
+
+        <Button
+            android:id="@+id/dlgBtnA4"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="@string/paper_a4"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/emerald_600"
+            android:background="@drawable/chip_active_bg"
+            android:layout_marginEnd="6dp" />
+
+        <Button
+            android:id="@+id/dlgBtnA5"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="@string/paper_a5"
+            android:textSize="12sp"
+            android:textColor="@color/on_surface_variant"
+            android:background="@drawable/chip_inactive_bg"
+            android:layout_marginEnd="6dp" />
+
+        <Button
+            android:id="@+id/dlgBtn2in1"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="@string/paper_2in1"
+            android:textSize="11sp"
+            android:textColor="@color/on_surface_variant"
+            android:background="@drawable/chip_inactive_bg" />
+    </LinearLayout>
+
+    <!-- Orientation Section -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/orientation_label"
+        android:textColor="@color/on_surface"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="16dp">
+
+        <Button
+            android:id="@+id/dlgBtnPortrait"
+            android:layout_width="0dp"
+            android:layout_height="42dp"
+            android:layout_weight="1"
+            android:text="@string/orientation_portrait"
+            android:textSize="12sp"
+            android:textColor="@color/emerald_600"
+            android:background="@drawable/chip_active_bg"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/dlgBtnLandscape"
+            android:layout_width="0dp"
+            android:layout_height="42dp"
+            android:layout_weight="1"
+            android:text="@string/orientation_landscape"
+            android:textSize="12sp"
+            android:textColor="@color/on_surface_variant"
+            android:background="@drawable/chip_inactive_bg" />
+    </LinearLayout>
+
+    <!-- Margin Section -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/margin_label"
+        android:textColor="@color/on_surface"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="20dp">
+
+        <Button
+            android:id="@+id/dlgBtnMarginStd"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:text="@string/margin_standard"
+            android:textSize="11sp"
+            android:textColor="@color/emerald_600"
+            android:background="@drawable/chip_active_bg"
+            android:layout_marginEnd="6dp" />
+
+        <Button
+            android:id="@+id/dlgBtnMarginNarrow"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:text="@string/margin_narrow"
+            android:textSize="11sp"
+            android:textColor="@color/on_surface_variant"
+            android:background="@drawable/chip_inactive_bg" />
+    </LinearLayout>
+
+    <!-- Apply & Close Button -->
+    <Button
+        android:id="@+id/dlgBtnApply"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="تأیید و بازگشت به پیش‌نمایش"
+        android:textColor="@color/on_primary"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:background="@drawable/primary_button_bg" />
+
+</LinearLayout>
