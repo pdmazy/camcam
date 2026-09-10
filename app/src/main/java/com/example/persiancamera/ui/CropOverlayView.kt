@@ -51,20 +51,80 @@ class CropOverlayView @JvmOverloads constructor(
     private val touchRadius = 80f
     private val handleRadius = 24f
 
+    private var currentImageWidth: Int = 0
+    private var currentImageHeight: Int = 0
+    private var pendingDetectedCorners: FloatArray? = null
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        resetToDefault(w, h)
+        val pending = pendingDetectedCorners
+        if (pending != null && currentImageWidth > 0 && currentImageHeight > 0) {
+            applyCornersFromImage(pending, currentImageWidth, currentImageHeight)
+            pendingDetectedCorners = null
+        } else {
+            resetToDefault(w, h)
+        }
     }
 
     fun resetToDefault(w: Int = width, h: Int = height) {
         if (w <= 0 || h <= 0) return
-        val marginX = w * 0.08f
-        val marginY = h * 0.08f
+        if (currentImageWidth > 0 && currentImageHeight > 0) {
+            val scale = minOf(w.toFloat() / currentImageWidth, h.toFloat() / currentImageHeight)
+            val dispW = currentImageWidth * scale
+            val dispH = currentImageHeight * scale
+            val offX = (w - dispW) / 2f
+            val offY = (h - dispH) / 2f
+            val insetX = dispW * 0.05f
+            val insetY = dispH * 0.05f
 
-        corners[0].set(marginX, marginY)             // TL
-        corners[1].set(w - marginX, marginY)         // TR
-        corners[2].set(w - marginX, h - marginY)     // BR
-        corners[3].set(marginX, h - marginY)         // BL
+            corners[0].set(offX + insetX, offY + insetY)
+            corners[1].set(offX + dispW - insetX, offY + insetY)
+            corners[2].set(offX + dispW - insetX, offY + dispH - insetY)
+            corners[3].set(offX + insetX, offY + dispH - insetY)
+        } else {
+            val marginX = w * 0.08f
+            val marginY = h * 0.08f
+            corners[0].set(marginX, marginY)
+            corners[1].set(w - marginX, marginY)
+            corners[2].set(w - marginX, h - marginY)
+            corners[3].set(marginX, h - marginY)
+        }
+        invalidate()
+    }
+
+    /**
+     * Applies automatically detected corners (in source bitmap pixel coordinates)
+     * and maps them accurately into the View's display bounds (accounting for fitCenter aspect ratio).
+     */
+    fun setDetectedCorners(imageCorners: FloatArray, imgW: Int, imgH: Int) {
+        currentImageWidth = imgW
+        currentImageHeight = imgH
+        if (width <= 0 || height <= 0) {
+            pendingDetectedCorners = imageCorners
+            return
+        }
+        applyCornersFromImage(imageCorners, imgW, imgH)
+    }
+
+    private fun applyCornersFromImage(imageCorners: FloatArray, imgW: Int, imgH: Int) {
+        if (imageCorners.size < 8 || imgW <= 0 || imgH <= 0 || width <= 0 || height <= 0) {
+            resetToDefault(width, height)
+            return
+        }
+
+        val viewW = width.toFloat()
+        val viewH = height.toFloat()
+        val scale = minOf(viewW / imgW, viewH / imgH)
+        val offX = (viewW - imgW * scale) / 2f
+        val offY = (viewH - imgH * scale) / 2f
+
+        for (i in 0..3) {
+            val imgX = imageCorners[i * 2]
+            val imgY = imageCorners[i * 2 + 1]
+            val vx = (offX + imgX * scale).coerceIn(0f, viewW)
+            val vy = (offY + imgY * scale).coerceIn(0f, viewH)
+            corners[i].set(vx, vy)
+        }
         invalidate()
     }
 
@@ -124,17 +184,32 @@ class CropOverlayView @JvmOverloads constructor(
     }
 
     /**
-     * Maps View corner coordinates to original bitmap image pixel coordinates
+     * Maps View corner coordinates back to original bitmap image pixel coordinates.
      */
     fun getNormalizedCorners(imageWidth: Int, imageHeight: Int): FloatArray {
         val viewW = width.toFloat().coerceAtLeast(1f)
         val viewH = height.toFloat().coerceAtLeast(1f)
+        val imgW = imageWidth.toFloat().coerceAtLeast(1f)
+        val imgH = imageHeight.toFloat().coerceAtLeast(1f)
+
+        val scale = minOf(viewW / imgW, viewH / imgH)
+        if (scale <= 0.0001f) {
+            return floatArrayOf(
+                0f, 0f,
+                imgW, 0f,
+                imgW, imgH,
+                0f, imgH
+            )
+        }
+
+        val offX = (viewW - imgW * scale) / 2f
+        val offY = (viewH - imgH * scale) / 2f
 
         return floatArrayOf(
-            (corners[0].x / viewW) * imageWidth, (corners[0].y / viewH) * imageHeight,
-            (corners[1].x / viewW) * imageWidth, (corners[1].y / viewH) * imageHeight,
-            (corners[2].x / viewW) * imageWidth, (corners[2].y / viewH) * imageHeight,
-            (corners[3].x / viewW) * imageWidth, (corners[3].y / viewH) * imageHeight
+            ((corners[0].x - offX) / scale).coerceIn(0f, imgW), ((corners[0].y - offY) / scale).coerceIn(0f, imgH),
+            ((corners[1].x - offX) / scale).coerceIn(0f, imgW), ((corners[1].y - offY) / scale).coerceIn(0f, imgH),
+            ((corners[2].x - offX) / scale).coerceIn(0f, imgW), ((corners[2].y - offY) / scale).coerceIn(0f, imgH),
+            ((corners[3].x - offX) / scale).coerceIn(0f, imgW), ((corners[3].y - offY) / scale).coerceIn(0f, imgH)
         )
     }
 }

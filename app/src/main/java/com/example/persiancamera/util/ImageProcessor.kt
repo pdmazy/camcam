@@ -233,9 +233,10 @@ object ImageProcessor {
         return try {
             val pdfDoc = PdfDocument()
 
-            // Standard A4 dimensions in points: 595 x 842
-            val pageWidth = 595
-            val pageHeight = 842
+            val isLandscape = bitmap.width > bitmap.height
+            // Standard A4 dimensions in points: 595 x 842 (Portrait) or 842 x 595 (Landscape)
+            val pageWidth = if (isLandscape) 842 else 595
+            val pageHeight = if (isLandscape) 595 else 842
 
             val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, 1).create()
             val page = pdfDoc.startPage(pageInfo)
@@ -290,5 +291,156 @@ object ImageProcessor {
             e.printStackTrace()
             null
         }
+    }
+
+    /**
+     * Automatic Document Edge & Corner Detection.
+     * Computes downscaled luminance gradients (Sobel) to locate the extremal 4 corners
+     * [Top-Left, Top-Right, Bottom-Right, Bottom-Left] of the photographed document.
+     * Returns FloatArray with 8 values [tlX, tlY, trX, trY, brX, brY, blX, blY] in src bitmap coordinates.
+     */
+    fun detectDocumentCorners(src: Bitmap, fallbackMarginPercent: Float = 0.06f): FloatArray {
+        val origW = src.width
+        val origH = src.height
+        if (origW <= 0 || origH <= 0) {
+            return floatArrayOf(0f, 0f, 100f, 0f, 100f, 100f, 0f, 100f)
+        }
+
+        // Downscale for fast & noise-free processing (target max dimension ~320px)
+        val maxDim = 320f
+        val scale = minOf(maxDim / origW, maxDim / origH, 1.0f)
+        val w = maxOf(10, (origW * scale).toInt())
+        val h = maxOf(10, (origH * scale).toInt())
+
+        try {
+            val scaledBitmap = Bitmap.createScaledBitmap(src, w, h, true)
+            val pixels = IntArray(w * h)
+            scaledBitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+            if (scaledBitmap != src) {
+                scaledBitmap.recycle()
+            }
+
+            // 1. Grayscale luminance
+            val gray = FloatArray(w * h)
+            for (i in pixels.indices) {
+                val c = pixels[i]
+                val r = (c shr 16) and 0xFF
+                val g = (c shr 8) and 0xFF
+                val b = c and 0xFF
+                gray[i] = 0.299f * r + 0.587f * g + 0.114f * b
+            }
+
+            // 2. 3x3 Gaussian Blur to remove sensor grain & background noise
+            val blurred = FloatArray(w * h)
+            for (y in 1 until h - 1) {
+                val row = y * w
+                for (x in 1 until w - 1) {
+                    val idx = row + x
+                    blurred[idx] = (
+                        gray[idx - w - 1] + 2f * gray[idx - w] + gray[idx - w + 1] +
+                        2f * gray[idx - 1] + 4f * gray[idx] + 2f * gray[idx + 1] +
+                        gray[idx + w - 1] + 2f * gray[idx + w] + gray[idx + w + 1]
+                    ) / 16f
+                }
+            }
+
+            // 3. Sobel Gradient Magnitude
+            val mag = FloatArray(w * h)
+            var sumMag = 0.0
+            var edgeCount = 0
+
+            for (y in 2 until h - 2) {
+                val row = y * w
+                for (x in 2 until w - 2) {
+                    val idx = row + x
+                    val gx = -1f * blurred[idx - w - 1] + 1f * blurred[idx - w + 1] +
+                             -2f * blurred[idx - 1]     + 2f * blurred[idx + 1] +
+                             -1f * blurred[idx + w - 1] + 1f * blurred[idx + w + 1]
+
+                    val gy = -1f * blurred[idx - w - 1] - 2f * blurred[idx - w] - 1f * blurred[idx - w + 1] +
+                              1f * blurred[idx + w - 1] + 2f * blurred[idx + w] + 1f * blurred[idx + w + 1]
+
+                    val v = kotlin.math.sqrt((gx * gx + gy * gy).toDouble()).toFloat()
+                    mag[idx] = v
+                    sumMag += v
+                    edgeCount++
+                }
+            }
+
+            val meanMag = if (edgeCount > 0) (sumMag / edgeCount).toFloat() else 30f
+            val threshold = maxOf(35f, meanMag * 1.8f)
+
+            // 4. Extremal corners: min/max of (x + y) and (x - y)
+            var minSum = Float.MAX_VALUE
+            var maxSum = -Float.MAX_VALUE
+            var minDiff = Float.MAX_VALUE
+            var maxDiff = -Float.MAX_VALUE
+
+            var tlX = w * 0.08f; var tlY = h * 0.08f
+            var trX = w * 0.92f; var trY = h * 0.08f
+            var brX = w * 0.92f; var brY = h * 0.92f
+            var blX = w * 0.08f; var blY = h * 0.92f
+
+            var foundPoints = 0
+            val borderX = (w * 0.04f).toInt()
+            val borderY = (h * 0.04f).toInt()
+
+            for (y in borderY until h - borderY) {
+                val row = y * w
+                for (x in borderX until w - borderX) {
+                    val idx = row + x
+                    if (mag[idx] > threshold) {
+                        foundPoints++
+                        val xF = x.toFloat()
+                        val yF = y.toFloat()
+                        val sum = xF + yF
+                        val diff = xF - yF
+
+                        if (sum < minSum) {
+                            minSum = sum
+                            tlX = xF; tlY = yF
+                        }
+                        if (sum > maxSum) {
+                            maxSum = sum
+                            brX = xF; brY = yF
+                        }
+                        if (diff > maxDiff) {
+                            maxDiff = diff
+                            trX = xF; trY = yF
+                        }
+                        if (diff < minDiff) {
+                            minDiff = diff
+                            blX = xF; blY = yF
+                        }
+                    }
+                }
+            }
+
+            // 5. Sanity check: ensure detected quad has sufficient width and height (> 35% of frame)
+            val detWidth = maxOf(kotlin.math.abs(trX - tlX), kotlin.math.abs(brX - blX))
+            val detHeight = maxOf(kotlin.math.abs(blY - tlY), kotlin.math.abs(brY - trY))
+
+            if (foundPoints > 20 && detWidth > w * 0.35f && detHeight > h * 0.35f) {
+                val invScale = 1.0f / scale
+                return floatArrayOf(
+                    tlX * invScale, tlY * invScale,
+                    trX * invScale, trY * invScale,
+                    brX * invScale, brY * invScale,
+                    blX * invScale, blY * invScale
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // Fallback: Centered inset rectangle
+        val insetX = origW * fallbackMarginPercent
+        val insetY = origH * fallbackMarginPercent
+        return floatArrayOf(
+            insetX, insetY,
+            origW - insetX, insetY,
+            origW - insetX, origH - insetY,
+            insetX, origH - insetY
+        )
     }
 }

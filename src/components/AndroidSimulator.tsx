@@ -1336,13 +1336,13 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
                   setPrintSettings(prev => ({ ...prev, pageSize: 'A4', layoutMode: '1-in-1' }));
                   setIsSavedToGallery(false);
                 }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer border-2 ${
-                  printSettings.pageSize === 'A4' && printSettings.layoutMode === '1-in-1'
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition cursor-pointer border-2 ${
+                  printSettings.pageSize === 'A4'
                     ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
                     : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                A4 اداری
+                برگه A4 اداری
               </button>
 
               <button
@@ -1350,27 +1350,13 @@ export const AndroidSimulator: React.FC<AndroidSimulatorProps> = ({ onPhotoCount
                   setPrintSettings(prev => ({ ...prev, pageSize: 'A5', layoutMode: '1-in-1' }));
                   setIsSavedToGallery(false);
                 }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer border-2 ${
-                  printSettings.pageSize === 'A5' && printSettings.layoutMode === '1-in-1'
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition cursor-pointer border-2 ${
+                  printSettings.pageSize === 'A5'
                     ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
                     : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                A5 نیم‌صفحه
-              </button>
-
-              <button
-                onClick={() => {
-                  setPrintSettings(prev => ({ ...prev, pageSize: 'A4', layoutMode: '2-in-1' }));
-                  setIsSavedToGallery(false);
-                }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer border-2 ${
-                  printSettings.layoutMode === '2-in-1'
-                    ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
-                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                ۲ در ۱ A4 (رو و پشت)
+                برگه A5 نیم‌صفحه
               </button>
             </div>
           </div>

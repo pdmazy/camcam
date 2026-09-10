@@ -161,17 +161,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Home Paper Size selectors
-        binding.btnHomePaperA4.setOnClickListener {
-            updatePaperMode(PageSize.A4, LayoutMode.SINGLE_PAGE)
-        }
-        binding.btnHomePaperA5.setOnClickListener {
-            updatePaperMode(PageSize.A5, LayoutMode.SINGLE_PAGE)
-        }
-        binding.btnHomePaper2in1.setOnClickListener {
-            updatePaperMode(PageSize.A4, LayoutMode.TWO_IN_ONE_A4)
-        }
-
         // ================= CAMERA SCREEN LISTENERS =================
         binding.btnBackFromCamera.setOnClickListener {
             showHomeScreen()
@@ -225,8 +214,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnAutoCorners.setOnClickListener {
-            binding.cropOverlay.resetToDefault()
-            Toast.makeText(this, "کادر تنظیم شد", Toast.LENGTH_SHORT).show()
+            rawCapturedBitmap?.let { bmp ->
+                val detectedCorners = ImageProcessor.detectDocumentCorners(bmp)
+                binding.cropOverlay.setDetectedCorners(detectedCorners, bmp.width, bmp.height)
+                Toast.makeText(this, "✨ لبه‌های مدرک به‌طور هوشمند شناسایی شد", Toast.LENGTH_SHORT).show()
+            } ?: run {
+                binding.cropOverlay.resetToDefault()
+            }
         }
 
         binding.btnApplyCrop.setOnClickListener {
@@ -243,7 +237,7 @@ class MainActivity : AppCompatActivity() {
             openCameraScreen()
         }
 
-        // Quick Paper Buttons on Result View
+        // Quick Paper Buttons on Result View (Strictly A4 and A5)
         binding.btnPaperA4.setOnClickListener {
             updatePaperMode(PageSize.A4, LayoutMode.SINGLE_PAGE)
             renderAndDisplaySheet()
@@ -251,15 +245,6 @@ class MainActivity : AppCompatActivity() {
         binding.btnPaperA5.setOnClickListener {
             updatePaperMode(PageSize.A5, LayoutMode.SINGLE_PAGE)
             renderAndDisplaySheet()
-        }
-        binding.btnPaper2in1.setOnClickListener {
-            updatePaperMode(PageSize.A4, LayoutMode.TWO_IN_ONE_A4)
-            renderAndDisplaySheet()
-        }
-
-        // 2-in-1 Banner: Add back side of document
-        binding.btnAddBackDoc.setOnClickListener {
-            secondaryGalleryLauncher.launch("image/*")
         }
 
         // Filter Mode Switchers
@@ -369,35 +354,29 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun updatePaperMode(pageSize: PageSize, layoutMode: LayoutMode) {
+    private fun updatePaperMode(pageSize: PageSize, layoutMode: LayoutMode = LayoutMode.SINGLE_PAGE) {
         printSettings.pageSize = pageSize
         printSettings.layoutMode = layoutMode
 
-        // Update UI Button Styles for Home and Result
-        val isA4 = pageSize == PageSize.A4 && layoutMode == LayoutMode.SINGLE_PAGE
-        val isA5 = pageSize == PageSize.A5 && layoutMode == LayoutMode.SINGLE_PAGE
-        val is2in1 = layoutMode == LayoutMode.TWO_IN_ONE_A4
+        // Ensure orientation strictly follows the active document's natural orientation!
+        val activeDoc = getCurrentActiveBitmap()
+        if (activeDoc != null) {
+            printSettings.orientation = if (activeDoc.width > activeDoc.height) Orientation.LANDSCAPE else Orientation.PORTRAIT
+        }
 
-        // Home Buttons
-        binding.btnHomePaperA4.setBackgroundResource(if (isA4) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
-        binding.btnHomePaperA5.setBackgroundResource(if (isA5) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
-        binding.btnHomePaper2in1.setBackgroundResource(if (is2in1) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+        // Update UI Button Styles for Result view (Strictly A4 and A5)
+        val isA4 = pageSize == PageSize.A4
+        val isA5 = pageSize == PageSize.A5
 
-        // Result Buttons
         binding.btnPaperA4.setBackgroundResource(if (isA4) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
-        binding.btnPaperA5.setBackgroundResource(if (isA5) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
-        binding.btnPaper2in1.setBackgroundResource(if (is2in1) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+        binding.btnPaperA4.setTextColor(resources.getColor(if (isA4) R.color.emerald_600 else R.color.on_surface_variant))
 
-        // 2-in-1 Banner visibility
-        binding.layout2in1Banner.visibility = if (is2in1 && secondaryDocBitmap == null) View.VISIBLE else View.GONE
+        binding.btnPaperA5.setBackgroundResource(if (isA5) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+        binding.btnPaperA5.setTextColor(resources.getColor(if (isA5) R.color.emerald_600 else R.color.on_surface_variant))
 
         // Badge update
         val orientationText = if (printSettings.orientation == Orientation.PORTRAIT) "عمودی" else "افقی"
-        binding.txtPaperBadge.text = when {
-            is2in1 -> "برگه A4 • ۲ در ۱ رو و پشت ($orientationText)"
-            isA5 -> "برگه A5 نیم‌صفحه • $orientationText"
-            else -> "برگه A4 اداری • $orientationText"
-        }
+        binding.txtPaperBadge.text = if (isA5) "برگه A5 نیم‌صفحه • $orientationText" else "برگه A4 اداری • $orientationText"
     }
 
     // ================= PRINT SETTINGS DIALOG =================
@@ -409,44 +388,39 @@ class MainActivity : AppCompatActivity() {
 
         val dlgBtnA4 = dialogView.findViewById<Button>(R.id.dlgBtnA4)
         val dlgBtnA5 = dialogView.findViewById<Button>(R.id.dlgBtnA5)
-        val dlgBtn2in1 = dialogView.findViewById<Button>(R.id.dlgBtn2in1)
         val dlgBtnPortrait = dialogView.findViewById<Button>(R.id.dlgBtnPortrait)
         val dlgBtnLandscape = dialogView.findViewById<Button>(R.id.dlgBtnLandscape)
-        val dlgBtnMarginStd = dialogView.findViewById<Button>(R.id.dlgBtnMarginStd)
-        val dlgBtnMarginNarrow = dialogView.findViewById<Button>(R.id.dlgBtnMarginNarrow)
         val btnClose = dialogView.findViewById<ImageButton>(R.id.btnCloseDialog)
         val btnApply = dialogView.findViewById<Button>(R.id.dlgBtnApply)
 
         fun refreshDialogButtons() {
-            val isA4 = printSettings.pageSize == PageSize.A4 && printSettings.layoutMode == LayoutMode.SINGLE_PAGE
-            val isA5 = printSettings.pageSize == PageSize.A5 && printSettings.layoutMode == LayoutMode.SINGLE_PAGE
-            val is2in1 = printSettings.layoutMode == LayoutMode.TWO_IN_ONE_A4
+            val isA4 = printSettings.pageSize == PageSize.A4
+            val isA5 = printSettings.pageSize == PageSize.A5
 
             dlgBtnA4.setBackgroundResource(if (isA4) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+            dlgBtnA4.setTextColor(resources.getColor(if (isA4) R.color.emerald_600 else R.color.on_surface_variant))
+
             dlgBtnA5.setBackgroundResource(if (isA5) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
-            dlgBtn2in1.setBackgroundResource(if (is2in1) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+            dlgBtnA5.setTextColor(resources.getColor(if (isA5) R.color.emerald_600 else R.color.on_surface_variant))
 
             val isPort = printSettings.orientation == Orientation.PORTRAIT
             dlgBtnPortrait.setBackgroundResource(if (isPort) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
-            dlgBtnLandscape.setBackgroundResource(if (!isPort) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+            dlgBtnPortrait.setTextColor(resources.getColor(if (isPort) R.color.emerald_600 else R.color.on_surface_variant))
 
-            val isStdMargin = printSettings.marginMm >= 10f
-            dlgBtnMarginStd.setBackgroundResource(if (isStdMargin) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
-            dlgBtnMarginNarrow.setBackgroundResource(if (!isStdMargin) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+            dlgBtnLandscape.setBackgroundResource(if (!isPort) R.drawable.chip_active_bg else R.drawable.chip_inactive_bg)
+            dlgBtnLandscape.setTextColor(resources.getColor(if (!isPort) R.color.emerald_600 else R.color.on_surface_variant))
         }
 
         refreshDialogButtons()
 
         dlgBtnA4.setOnClickListener {
-            updatePaperMode(PageSize.A4, LayoutMode.SINGLE_PAGE)
+            printSettings.pageSize = PageSize.A4
+            printSettings.layoutMode = LayoutMode.SINGLE_PAGE
             refreshDialogButtons()
         }
         dlgBtnA5.setOnClickListener {
-            updatePaperMode(PageSize.A5, LayoutMode.SINGLE_PAGE)
-            refreshDialogButtons()
-        }
-        dlgBtn2in1.setOnClickListener {
-            updatePaperMode(PageSize.A4, LayoutMode.TWO_IN_ONE_A4)
+            printSettings.pageSize = PageSize.A5
+            printSettings.layoutMode = LayoutMode.SINGLE_PAGE
             refreshDialogButtons()
         }
 
@@ -456,15 +430,6 @@ class MainActivity : AppCompatActivity() {
         }
         dlgBtnLandscape.setOnClickListener {
             printSettings.orientation = Orientation.LANDSCAPE
-            refreshDialogButtons()
-        }
-
-        dlgBtnMarginStd.setOnClickListener {
-            printSettings.marginMm = 10f
-            refreshDialogButtons()
-        }
-        dlgBtnMarginNarrow.setOnClickListener {
-            printSettings.marginMm = 5f
             refreshDialogButtons()
         }
 
@@ -557,27 +522,12 @@ class MainActivity : AppCompatActivity() {
                     rawCapturedBitmap = bitmap
                     binding.imgCropSource.setImageBitmap(bitmap)
                     binding.cropOverlay.post {
-                        binding.cropOverlay.resetToDefault()
+                        val detectedCorners = ImageProcessor.detectDocumentCorners(bitmap)
+                        binding.cropOverlay.setDetectedCorners(detectedCorners, bitmap.width, bitmap.height)
                     }
                     showCropScreen()
                 } else {
                     Toast.makeText(this@MainActivity, "خطا در بارگذاری تصویر", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
-
-    private fun loadSecondaryBitmap(uri: Uri) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val bitmap = ImageProcessor.decodeAndRotateBitmap(contentResolver, uri)
-            if (bitmap != null) {
-                // Apply photocopy to back document
-                val processedBack = ImageProcessor.toPhotocopy(bitmap)
-                secondaryDocBitmap = processedBack
-                withContext(Dispatchers.Main) {
-                    binding.layout2in1Banner.visibility = View.GONE
-                    renderAndDisplaySheet()
-                    Toast.makeText(this@MainActivity, "پشت مدرک با موفقیت اضافه شد", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -594,6 +544,11 @@ class MainActivity : AppCompatActivity() {
             val warped = ImageProcessor.warpPerspective(src, corners)
             dewarpedBitmap = warped
 
+            // Strictly preserve the document's natural orientation:
+            // Horizontal document (width > height) stays horizontal!
+            // Vertical document (height >= width) stays vertical!
+            printSettings.orientation = if (warped.width > warped.height) Orientation.LANDSCAPE else Orientation.PORTRAIT
+
             // Step 2: High Quality Photocopy & Filters
             val photo = ImageProcessor.toPhotocopy(warped)
             val magic = ImageProcessor.toMagicColor(warped)
@@ -607,6 +562,7 @@ class MainActivity : AppCompatActivity() {
                 binding.btnApplyCrop.isEnabled = true
                 activeFilter = "photocopy"
                 updateFilterChipsUI("photocopy")
+                updatePaperMode(printSettings.pageSize, LayoutMode.SINGLE_PAGE)
                 showResultScreen()
                 renderAndDisplaySheet()
                 Toast.makeText(this@MainActivity, getString(R.string.bw_photo_saved), Toast.LENGTH_SHORT).show()
@@ -615,6 +571,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun recomputeAllFilters(source: Bitmap) {
+        printSettings.orientation = if (source.width > source.height) Orientation.LANDSCAPE else Orientation.PORTRAIT
         binding.progressConverting.visibility = View.VISIBLE
         lifecycleScope.launch(Dispatchers.IO) {
             val photo = ImageProcessor.toPhotocopy(source)
@@ -627,6 +584,7 @@ class MainActivity : AppCompatActivity() {
 
             withContext(Dispatchers.Main) {
                 binding.progressConverting.visibility = View.GONE
+                updatePaperMode(printSettings.pageSize, LayoutMode.SINGLE_PAGE)
                 renderAndDisplaySheet()
             }
         }

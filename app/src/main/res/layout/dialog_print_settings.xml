@@ -43,52 +43,42 @@
         android:textSize="12sp"
         android:layout_marginBottom="16dp" />
 
-    <!-- Paper Size Section -->
+    <!-- Paper Size Section (Only A4 and A5) -->
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@string/paper_format_label"
         android:textColor="@color/on_surface"
-        android:textSize="13sp"
+        android:textSize="14sp"
         android:textStyle="bold"
-        android:layout_marginBottom="8dp" />
+        android:layout_marginBottom="10dp" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginBottom="16dp">
+        android:layout_marginBottom="20dp">
 
         <Button
             android:id="@+id/dlgBtnA4"
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="50dp"
             android:layout_weight="1"
-            android:text="@string/paper_a4"
-            android:textSize="12sp"
+            android:text="برگه A4 اداری\n(210 × 297 mm)"
+            android:textSize="13sp"
             android:textStyle="bold"
             android:textColor="@color/emerald_600"
             android:background="@drawable/chip_active_bg"
-            android:layout_marginEnd="6dp" />
+            android:layout_marginEnd="10dp" />
 
         <Button
             android:id="@+id/dlgBtnA5"
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="50dp"
             android:layout_weight="1"
-            android:text="@string/paper_a5"
-            android:textSize="12sp"
-            android:textColor="@color/on_surface_variant"
-            android:background="@drawable/chip_inactive_bg"
-            android:layout_marginEnd="6dp" />
-
-        <Button
-            android:id="@+id/dlgBtn2in1"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:text="@string/paper_2in1"
-            android:textSize="11sp"
+            android:text="برگه A5 نیم‌صفحه\n(148 × 210 mm)"
+            android:textSize="13sp"
+            android:textStyle="bold"
             android:textColor="@color/on_surface_variant"
             android:background="@drawable/chip_inactive_bg" />
     </LinearLayout>
@@ -99,72 +89,36 @@
         android:layout_height="wrap_content"
         android:text="@string/orientation_label"
         android:textColor="@color/on_surface"
-        android:textSize="13sp"
+        android:textSize="14sp"
         android:textStyle="bold"
-        android:layout_marginBottom="8dp" />
+        android:layout_marginBottom="10dp" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginBottom="16dp">
+        android:layout_marginBottom="24dp">
 
         <Button
             android:id="@+id/dlgBtnPortrait"
             android:layout_width="0dp"
-            android:layout_height="42dp"
+            android:layout_height="46dp"
             android:layout_weight="1"
             android:text="@string/orientation_portrait"
-            android:textSize="12sp"
+            android:textSize="13sp"
+            android:textStyle="bold"
             android:textColor="@color/emerald_600"
             android:background="@drawable/chip_active_bg"
-            android:layout_marginEnd="8dp" />
+            android:layout_marginEnd="10dp" />
 
         <Button
             android:id="@+id/dlgBtnLandscape"
             android:layout_width="0dp"
-            android:layout_height="42dp"
+            android:layout_height="46dp"
             android:layout_weight="1"
             android:text="@string/orientation_landscape"
-            android:textSize="12sp"
-            android:textColor="@color/on_surface_variant"
-            android:background="@drawable/chip_inactive_bg" />
-    </LinearLayout>
-
-    <!-- Margin Section -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/margin_label"
-        android:textColor="@color/on_surface"
-        android:textSize="13sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="8dp" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginBottom="20dp">
-
-        <Button
-            android:id="@+id/dlgBtnMarginStd"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:text="@string/margin_standard"
-            android:textSize="11sp"
-            android:textColor="@color/emerald_600"
-            android:background="@drawable/chip_active_bg"
-            android:layout_marginEnd="6dp" />
-
-        <Button
-            android:id="@+id/dlgBtnMarginNarrow"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:text="@string/margin_narrow"
-            android:textSize="11sp"
+            android:textSize="13sp"
+            android:textStyle="bold"
             android:textColor="@color/on_surface_variant"
             android:background="@drawable/chip_inactive_bg" />
     </LinearLayout>
@@ -173,11 +127,10 @@
     <Button
         android:id="@+id/dlgBtnApply"
         android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:text="تأیید و بازگشت به پیش‌نمایش"
+        android:layout_height="52dp"
+        android:text="تأیید و اعمال تنظیمات برگه"
         android:textColor="@color/on_primary"
-        android:textSize="14sp"
+        android:textSize="15sp"
         android:textStyle="bold"
         android:background="@drawable/primary_button_bg" />
-
 </LinearLayout>

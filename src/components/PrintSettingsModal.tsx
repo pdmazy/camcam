@@ -154,162 +154,65 @@ export const PrintSettingsModal: React.FC<PrintSettingsModalProps> = ({
             </div>
           </div>
 
-          {/* Section 2: Layout Mode (Single vs 2-in-1) */}
+          {/* Section 2: Page Orientation */}
           <div>
             <div className="flex items-center justify-between mb-2.5">
               <label className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
-                <Layers className="w-4 h-4 text-emerald-600" />
-                <span>نحوه چیدمان مدرک در برگه</span>
+                <RotateCw className="w-4 h-4 text-emerald-600" />
+                <span>جهت نمایش و چاپ برگه</span>
               </label>
+              <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                {settings.orientation === 'landscape' ? 'افقی (Landscape)' : 'عمودی (Portrait)'}
+              </span>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              {/* 1 in 1: Single Document */}
+              {/* Portrait */}
               <button
                 type="button"
-                onClick={() => updateSetting('layoutMode', '1-in-1')}
-                className={`p-3.5 rounded-xl border-2 text-right transition cursor-pointer flex flex-col justify-between gap-2 ${
-                  settings.layoutMode === '1-in-1'
+                onClick={() => updateSetting('orientation', 'portrait')}
+                className={`p-3.5 rounded-xl border-2 text-right transition cursor-pointer flex items-center justify-between gap-2 ${
+                  settings.orientation === 'portrait'
                     ? 'border-emerald-600 bg-emerald-50 text-slate-900 shadow-md shadow-emerald-600/10 ring-2 ring-emerald-500/20'
                     : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700'
                 }`}
               >
-                <div className="flex items-center justify-between w-full">
-                  <span className="font-bold text-xs sm:text-sm text-slate-900">تک‌سند (۱ در ۱)</span>
-                  {settings.layoutMode === '1-in-1' && (
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                  )}
+                <div>
+                  <span className="font-black text-sm text-slate-900 block">عمودی (ایستاده)</span>
+                  <span className="text-[11px] text-slate-500">مناسب نامه‌های رسمی و اسناد A4</span>
                 </div>
-                <div className="w-full h-12 bg-white border border-slate-200 rounded-lg flex items-center justify-center p-1">
-                  <div className="w-3/4 h-5/6 bg-emerald-100 border border-emerald-400 rounded flex items-center justify-center text-[10px] text-emerald-900 font-bold">
-                    مدرک تکی
-                  </div>
-                </div>
-                <span className="text-[11px] text-slate-500 font-medium">
-                  نمایش یک سند در مرکز برگه {settings.pageSize}
-                </span>
+                {settings.orientation === 'portrait' && (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                )}
               </button>
 
-              {/* 2 in 1: Front + Back on A4 */}
+              {/* Landscape */}
               <button
                 type="button"
-                onClick={() => {
-                  updateSetting('layoutMode', '2-in-1');
-                  updateSetting('pageSize', 'A4');
-                }}
-                className={`p-3.5 rounded-xl border-2 text-right transition cursor-pointer flex flex-col justify-between gap-2 ${
-                  settings.layoutMode === '2-in-1'
+                onClick={() => updateSetting('orientation', 'landscape')}
+                className={`p-3.5 rounded-xl border-2 text-right transition cursor-pointer flex items-center justify-between gap-2 ${
+                  settings.orientation === 'landscape'
                     ? 'border-emerald-600 bg-emerald-50 text-slate-900 shadow-md shadow-emerald-600/10 ring-2 ring-emerald-500/20'
                     : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700'
                 }`}
               >
-                <div className="flex items-center justify-between w-full">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-bold text-xs sm:text-sm text-slate-900">۲ در ۱ (رو و پشت)</span>
-                    <span className="bg-amber-100 text-amber-900 text-[10px] px-1.5 py-0.2 rounded font-bold">کارت ملی</span>
-                  </div>
-                  {settings.layoutMode === '2-in-1' && (
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                  )}
+                <div>
+                  <span className="font-black text-sm text-slate-900 block">افقی (خوابیده)</span>
+                  <span className="text-[11px] text-slate-500">مناسب مدارک افقی، کارت شناسایی و چک</span>
                 </div>
-                <div className="w-full h-12 bg-white border border-slate-200 rounded-lg flex flex-col justify-between p-1">
-                  <div className="w-full h-[45%] bg-emerald-100 border border-emerald-400 rounded flex items-center justify-center text-[9px] text-emerald-900 font-bold">
-                    سند ۱ (روی کارت)
-                  </div>
-                  <div className="border-t border-dashed border-slate-300 my-0.5"></div>
-                  <div className="w-full h-[45%] bg-blue-100 border border-blue-400 rounded flex items-center justify-center text-[9px] text-blue-900 font-bold">
-                    سند ۲ (پشت کارت)
-                  </div>
-                </div>
-                <span className="text-[11px] text-slate-500 font-medium">
-                  چاپ دو طرف کارت روی یک برگه A4 با خط برش
-                </span>
+                {settings.orientation === 'landscape' && (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                )}
               </button>
             </div>
           </div>
 
-          {/* If 2-in-1: Select/Upload Secondary Document */}
-          {settings.layoutMode === '2-in-1' && (
-            <div className="p-3.5 bg-amber-50/90 border border-amber-300 rounded-xl space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-amber-950 text-xs flex items-center gap-1.5">
-                  <Info className="w-4 h-4 text-amber-700" />
-                  تصویر سند دوم (پشت کارت ملی):
-                </span>
-                {settings.secondaryPhoto && (
-                  <button
-                    onClick={() => updateSetting('secondaryPhoto', undefined)}
-                    className="text-[11px] text-red-600 hover:text-red-700 font-bold cursor-pointer"
-                  >
-                    حذف سند دوم
-                  </button>
-                )}
-              </div>
-
-              {settings.secondaryPhoto ? (
-                <div className="flex items-center gap-3 bg-white p-2 rounded-lg border border-amber-200">
-                  <img
-                    src={settings.secondaryPhoto}
-                    alt="پشت مدرک"
-                    className="w-16 h-12 object-cover rounded border border-slate-200"
-                  />
-                  <div className="flex-1 text-right">
-                    <span className="text-xs font-bold text-slate-800 block">تصویر پشت مدرک ثبت شده است</span>
-                    <span className="text-[10px] text-slate-500">در نیمه پایینی برگه A4 درج خواهد شد</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-[11px] text-amber-800">
-                    برای چاپ ۲ در ۱، تصویر پشت مدرک را از گالری بارگذاری کنید یا همان تصویر تکرار خواهد شد:
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => secondaryFileInputRef.current?.click()}
-                      className="flex-1 bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-sm transition"
-                    >
-                      <Upload className="w-4 h-4" />
-                      <span>بارگذاری تصویر پشت مدرک</span>
-                    </button>
-                    <input
-                      ref={secondaryFileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleSecondaryUpload}
-                      className="hidden"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Section 3: Document Margin and Finishing */}
+          {/* Section 3: Document Finishing */}
           <div className="pt-2 border-t border-slate-100 space-y-3">
-            {/* Cut Line Toggle (for 2-in-1) */}
-            {settings.layoutMode === '2-in-1' && (
-              <label className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition">
-                <div className="flex items-center gap-2.5">
-                  <Scissors className="w-4 h-4 text-slate-600" />
-                  <div>
-                    <span className="font-bold text-xs text-slate-800 block">رسم خط‌چین برش و تا</span>
-                    <span className="text-[10px] text-slate-500">افزودن خط‌چین وسط برگه برای برش منظم کارت</span>
-                  </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={settings.addCutLine}
-                  onChange={(e) => updateSetting('addCutLine', e.target.checked)}
-                  className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
-                />
-              </label>
-            )}
-
             {/* Timestamp Toggle */}
-            <label className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition">
+            <label className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition">
               <div className="flex items-center gap-2.5">
-                <Sparkles className="w-4 h-4 text-slate-600" />
+                <Sparkles className="w-4 h-4 text-emerald-600" />
                 <div>
                   <span className="font-bold text-xs text-slate-800 block">درج پاورقی رسمی تاریخ و ساعت</span>
                   <span className="text-[10px] text-slate-500">ثبت تاریخ شمسی اسکن در گوشه پایین برگه</span>
